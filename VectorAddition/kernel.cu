@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <cuComplex.h>
+#include "kernel.h"
 #define _USE_MATH_DEFINES
 #include <math.h>
 
@@ -27,93 +28,103 @@ using namespace std;
 
 int main()
 {
+	string dataFileName = "radial_stub^S.txt";
 
-		double *freq;
-		cudaMallocManaged(&freq, SIZE * sizeof(double));
+	//Ali: var to store freq points in data (upto 1024 data points)
+	double *freq;
+	cudaMallocManaged(&freq, SIZE * sizeof(double));
 
-		struct response {
-			double real;
-			double imag;
-		};
+	//Ali: store collected data in complex form (upto 1024 data points)
+	cuComplex *data;
+	cudaMallocManaged(&data, SIZE * sizeof(cuComplex));
 
+	//Ali: store info about the stroed data
+	//		-lowest freq
+	//		-highest freq
+	//		-number of freq points
+	frequency *frequencyInfo;
+	cudaMallocManaged(&frequencyInfo, sizeof(frequency));
 
-		response *data;
-		cudaMallocManaged(&data, SIZE * sizeof(response));
-
-		struct frequency {
-			double high;
-			double low;
-			int fpointCount;
-		};
-
-		frequency *frequencyInfo;
-		cudaMallocManaged(&frequencyInfo, sizeof(frequency));
-
-		std::string::size_type sz;
-		int skipline = 0;
-
-	ifstream infile("radial_stub^S.txt");
+	std::string::size_type sz;
 	
-	if (!infile)
-	{
+
+	ifstream infile(dataFileName);
+	
+	//Ali: Attempt to open data file 
+	if (!infile) {
 		std::cout << "While opening data file an error was encountered" << std::endl;
 	} else {
 		string line;
-		int h = 0;
+		int fileColumn, freqCount = 0;
 		(*frequencyInfo).fpointCount = 0;
-		int w = 0;
+		bool skipline;
+		string word;
+
+		//Ali: iterate through each line
 		while (getline(infile, line)) {
-			istringstream iss(line);
-			int i = 1;			
-			while (iss) {
-				string word;
-				iss >> word;
-				skipline = 0;
+			istringstream stringOfLine(line);
+			fileColumn = 0;
+
+			//Ali: Iterrate through each element of line which is refered to as a column
+			while (stringOfLine) {
+				//load new element into a string variable called "word"
+				stringOfLine >> word;
+				skipline = false;
+
+				//Ali: if comment ("%#") is detected then like is skipped
 				if (word.compare("%#") == 0) {
-					skipline = 1;
+					skipline = true;
 					break;
 				}
-				if (i == 1) {
-					freq[h] = stod(word, &sz);
-					(*frequencyInfo).fpointCount++;
 
-					if (w == 0) {
-						(*frequencyInfo).high = freq[h];
-						(*frequencyInfo).low = freq[h];
-						w++;
-					}
-					else {
-						if ((*frequencyInfo).high < freq[h]) {
-							(*frequencyInfo).high = freq[h];
+				//Ali: if it is the first column then data is stored as the frequency
+				if (fileColumn == 0) {
+					//Ali: translate string to int 
+					freq[freqCount] = stod(word, &sz);
+
+					//Ali: if it is the forst freq reading then initialize max and min
+					if (freqCount == 0) {
+						(*frequencyInfo).high = freq[freqCount];
+						(*frequencyInfo).low = freq[freqCount];
+					}else {
+						//Ali: if current freq is greater than highest then update 
+						if ((*frequencyInfo).high < freq[freqCount]) {
+							(*frequencyInfo).high = freq[freqCount];
 						}
-							
-
-						if ((*frequencyInfo).low > freq[h]) {
-							(*frequencyInfo).low = freq[h];
+						//Ali: if current freq is smaller than lowest then update 
+						if ((*frequencyInfo).low > freq[freqCount]) {
+							(*frequencyInfo).low = freq[freqCount];
 						}	
 					}
 
 				}
-				if (i == 2) {
-					data[h].real = stod(word, &sz);
+				//Ali: The second column is the real part of the response
+				if (fileColumn == 1) {
+					data[freqCount].x = stod(word, &sz);
 				}
-				if (i == 3) {
-					data[h].imag = stod(word, &sz);
+				//Ali: The third column is the imag part of the response
+				if (fileColumn == 2) {
+					data[freqCount].y = stod(word, &sz);
 				}
-				i++;
+				fileColumn++;
 			}
-			if (skipline == 0) {
-				h++;
+			//Ali: If line is skipped then dont add to freq count
+			if (!skipline) {
+				freqCount++;
 			}		
 		}
 
+		//Ali: Update total freq count
+		(*frequencyInfo).fpointCount= freqCount;
+
+		//Ali: make sure the min is atleast 1e-6
 		if ((*frequencyInfo).low < MINFREQ) {
 			(*frequencyInfo).low = MINFREQ;
 		}
 	}
 
 	for (int z = 0; z < (*frequencyInfo).fpointCount; z++) {
-		printf("Z: %d FREQ: %f RESP: %f(%f) \n", z, freq[z], data[z].real, data[z].imag);
+		printf("Z: %d FREQ: %f RESP: %f(%f) \n", z, freq[z], data[z].x, data[z].y);
 	}
 	printf("********************************************************\n");
 	printf("HiegestFREQ: %f GHz \n LowestFREQ: %f GHz \n FreqPoints %d\n", (*frequencyInfo).high, (*frequencyInfo).low, (*frequencyInfo).fpointCount);
