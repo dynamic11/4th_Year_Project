@@ -163,8 +163,11 @@ int main()
 	cuComplex *Complex_Poles;
 	cudaMallocManaged(&Complex_Poles, NComplexPoles * sizeof(cuComplex));
 
+	cuComplex *Poles;
+	cudaMallocManaged(&Poles, (NRealPoles+ NComplexPoles) * sizeof(cuComplex));
+
 	int B[2] = { 1, 1 };
-	int C[2] = { 1, -1 };
+	int C[2] = { 1, 1 };
 
 	double poleSpacing = ((*frequencyInfo).high - (*frequencyInfo).low) / (NumberOfPoles-1);
 
@@ -188,7 +191,18 @@ int main()
 		}
 	}
 
+	//merge Poles into one matrix
+	printf("444444\n");
+	for (int z = 0; z < (NComplexPoles+ NRealPoles); z++) {
+		if (z < NRealPoles) {
+			Poles[z].x = Real_Poles[z];
+		}else {
+			Poles[z].x = Complex_Poles[z - NRealPoles].x;
+			Poles[z].y = Complex_Poles[z - NRealPoles].y;
+		}
+	}
 
+	printf("444444\n");
 	printf("\n\n********************************************************\n");
 	printf("Initial Poles\n");
 	printf("********************************************************\n");
@@ -197,6 +211,10 @@ int main()
 	}
 	for (int z = 0; z <  NComplexPoles; z++) {
 		printf("Complex Pole[%d]: %f(%f) \n", z, Complex_Poles[z].x, Complex_Poles[z].y);
+	}
+	printf("^^^^^^^^^^^^^\n");
+	for (int z = 0; z < NComplexPoles + NRealPoles; z++) {
+		printf("merged Pole[%d]: %f(%f) \n", z, Poles[z].x, Poles[z].y);
 	}
 	printf("^^^^^^^^^^^^^\n");
 	printf("NumberOfPoles: %d  \n poleSpacing: %f \n", NumberOfPoles, poleSpacing);
@@ -213,14 +231,23 @@ int main()
 	int isReal = 1;
 	for (int i = 0; i < NRealPoles + NComplexPoles * 2 + NPorts; i++) {
 		if (i < NRealPoles) {
-			Apattern[i]=0;	
+			Apattern[i]=1;	
 		}else if (i < NRealPoles+NComplexPoles) {
-			Apattern[i] = (isReal) ? 1 : -1;
+			Apattern[i] = (isReal) ? 2 : 3;
 			isReal ^= 1;	
 		}else if (i < NRealPoles + NComplexPoles+NPorts) {
-			Apattern[i] = 2;
+			Apattern[i] = 4;
+		}else if ((i- NComplexPoles - NPorts- NRealPoles) < NRealPoles) {
+			Apattern[i] = -1;
+		}
+		else if ((i - NComplexPoles - NPorts - NRealPoles)  < NRealPoles + NComplexPoles) {
+			Apattern[i] = (isReal) ? -2 : -3;
+			isReal ^= 1;
 		}
 	};
+
+
+
 	printf(" A Pattern: ");
 	for (int i = 0; i < NRealPoles + NComplexPoles * 2 + NPorts; i++) {
 			printf("%d ", Apattern[i]);
@@ -246,53 +273,67 @@ int main()
 	printf("here 2\n");
 	double real;
 	double imag;
-	int h= 0;
-	int y;
+	double denum;
 	int test = 0;
 	for (int col = 0; col < NComplexPoles+NRealPoles+NPorts; col++) {
-		printf("%d   ", Apattern[col]);
-		if (Apattern[col] == 0) {
-			real = Real_Poles[col];
-			imag = 0;
-		}
-		else {
-			real = Complex_Poles[col-NRealPoles].x;
-			imag = Complex_Poles[col- NRealPoles].y;
-		}
-
+		real = Poles[col].x;
+		imag = Poles[col].y;
 		for (int row = 0; row < (*frequencyInfo).fpointCount; row++) {
-			y = NRealPoles + col;
-
-
 			s = 2 * M_PI*freq[row];
 			
-//real		
-			if(Apattern[col] == 0){
+			//real		
+			if(Apattern[col] == 1){
 				Ahat[col*NRow + row].x = -real / (pow(real, 2) + pow(s, 2));
 				Ahat[col*NRow + row].y = -s / (pow(real, 2) + pow(s, 2));
-			}else if (Apattern[col] == 1) {
-				double denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			}else if (Apattern[col] == 2) {
+				denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
 				Ahat[col*NRow + row].x = (-2 * real*(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / denum;
 				Ahat[col*NRow + row].y = (-2 * s *(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / denum;
-			}else if (Apattern[col] == -1) {
-				double denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			}else if (Apattern[col] == 3) {
+				denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
 				Ahat[(col)*NRow + row].x = (-2 * imag*(pow(real, 2) - pow(s, 2) + pow(imag, 2))) / denum;
 				Ahat[(col)*NRow + row].y = (-4 * real*imag*s) / denum;
-			}			
-			//imag			
-			g++;
+			}else if (Apattern[col] == 4) {
+				Ahat[col*NRow + row].x = 1;
+				Ahat[col*NRow + row].y = 0;
+			}
+			else if (Apattern[col] == -1) {
+				denum = pow(real, 2) + pow(imag, 2) - 2 * imag*s + pow(s, 2);
+				Ahat[col*NRow + row].x = (real*data[row].x- data[row].x*s+ data[row].y*imag) / denum;
+				Ahat[col*NRow + row].y = (s*data[row].x - data[row].x*imag + data[row].y*real) / denum;
 
-			
+			}
+			else if (Apattern[col] == -2) {
+				denum = pow(real,4)+2*pow(real,2)*pow(s,2)+2*pow(real,2)*pow(imag,2)+pow(imag,4)-2*pow(imag,2)*pow(s,2)+pow(s,4);
+				Ahat[col*NRow + row].x = 2 * (pow(real, 3)*data[row].x + pow(real, 2)*data[row].y*s + real* data[row].x*pow(s, 2) + real* data[row].x*pow(imag, 2) + s*data[row].y*pow(imag, 2) - s* data[row].y*pow(s, 3)) / denum;
+				Ahat[col*NRow + row].y = 2 * (pow(real, 3)*data[row].y - pow(real, 2)*data[row].x*s + real* data[row].y*pow(s, 2) + real* data[row].y*pow(imag, 2) + s*data[row].x*pow(imag, 2) - s* data[row].x*pow(s, 3)) / denum;
+			}
+			else if (Apattern[col] == -3) {
+				denum = pow(real, 4) + 2 * pow(real, 2)*pow(s, 2) + 2 * pow(real, 2)*pow(imag, 2) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4);
+				Ahat[col*NRow + row].x = 2 * (imag*pow(real, 2)*data[row].x - imag*data[row].y* pow(s, 2) + real* data[row].x*pow(imag, 3) -2*real*imag* data[row].y*s + s*data[row].y*pow(imag, 2) - s* data[row].y*pow(s, 3)) / denum;
+				Ahat[col*NRow + row].y = 2 * (2*imag*data[row].x*real*s + pow(real, 2)*data[row].y*imag - imag* data[row].y*pow(s, 2) +  data[row].y*pow(imag, 3))  / denum;
+			}
+
+			//imag			
+			g++;		
 		};
-		h++;
+
 	};
-	printf("\n");
+
+	FILE * fp;
+
+	fp = fopen("file.txt", "w+");
 	for (int row = 0; row < 17; row++) {
-		for (int col = 0; col < 7; col++) {
-			printf(" %.4e(%f)", Ahat[col*NRow + row].x, Ahat[col*NRow + row].y);
+		for (int col = 0; col < 17; col++) {
+			fprintf(fp," %.4e(%.4e)", Ahat[col*NRow + row].x, Ahat[col*NRow + row].y);
 		};
-		printf("\n");
+		fprintf(fp,"\n");
 	};
+
+	fclose(fp);
+
+	return(0);
+	
 
 
 /*	Poles_imag_part = linspace(f.L, f.H, IP.Nreal + IP.Ncomplex / 2);
