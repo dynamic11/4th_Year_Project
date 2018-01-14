@@ -9,8 +9,9 @@
 #include <math.h>
 
 const int SIZE = 1024;
-const int MINFREQ = (1 * pow(10, -6));
+const double MINFREQ = 1e-6;
 using namespace std;
+bool debug;
 
 //__global__ void VectorAdd(int *a, int *b, int *c, int n)
 //{
@@ -28,7 +29,14 @@ using namespace std;
 
 int main()
 {
+	debug = true;
 	string dataFileName = "radial_stub^S.txt";
+	int NRealPoles = 1;
+	int NComplexPoles = 16;
+
+	//###########################Reading File########################################
+
+	
 
 	//Ali: var to store freq points in data (upto 1024 data points)
 	double *freq;
@@ -123,17 +131,23 @@ int main()
 		}
 	}
 
-	for (int z = 0; z < (*frequencyInfo).fpointCount; z++) {
-		printf("Z: %d FREQ: %f RESP: %f(%f) \n", z, freq[z], data[z].x, data[z].y);
+	if (debug) {
+		printf("\n\n********************************************************\n");
+		printf("extracted data\n");
+		printf("********************************************************\n");
+		for (int z = 0; z < (*frequencyInfo).fpointCount; z++) {
+			printf("Z: %d FREQ: %f RESP: %f(%f) \n", z, freq[z], data[z].x, data[z].y);
+		}
+		printf("^^^^^^^^^^^^^^^^^^^\n");
+		printf("HiegestFREQ: %f GHz \n LowestFREQ: %f GHz \n FreqPoints %d\n", (*frequencyInfo).high, (*frequencyInfo).low, (*frequencyInfo).fpointCount);
 	}
-	printf("********************************************************\n");
-	printf("HiegestFREQ: %f GHz \n LowestFREQ: %f GHz \n FreqPoints %d\n", (*frequencyInfo).high, (*frequencyInfo).low, (*frequencyInfo).fpointCount);
 
-	//##################################################################################
 
+
+	//###########################Initial Pole Guess########################################
+
+	//This constant is predetermined in a paper
 	int Real_part_Divisor = 100;
-	int NRealPoles = 1;
-	int NComplexPoles = 16;
 
 	int NumberOfPoles = NRealPoles + (NComplexPoles / 2);
 
@@ -143,20 +157,8 @@ int main()
 	double *Poles_real_part;
 	cudaMallocManaged(&Poles_real_part, NumberOfPoles * sizeof(double));
 
-	double poleSpacing=((*frequencyInfo).high - (*frequencyInfo).low) / (NumberOfPoles-1);
-
-
-	for (int z = 0; z < NumberOfPoles; z++) {
-		Poles_imag_part[z] = (*frequencyInfo).low + poleSpacing*z;
-		Poles_real_part[z] = Poles_imag_part[z] / Real_part_Divisor;
-	}
-
 	double *Real_Poles;
 	cudaMallocManaged(&Real_Poles, NRealPoles * sizeof(double));
-
-	for (int z = 0; z < NRealPoles; z++) {
-		Real_Poles[z] = Poles_real_part[z];
-	}
 
 	cuComplex *Complex_Poles;
 	cudaMallocManaged(&Complex_Poles, NComplexPoles * sizeof(cuComplex));
@@ -164,27 +166,86 @@ int main()
 	int B[2] = { 1, 1 };
 	int C[2] = { -1, 1 };
 
-	int o = 0;
+	double poleSpacing = ((*frequencyInfo).high - (*frequencyInfo).low) / (NumberOfPoles-1);
+
+	for (int z = 0; z < NumberOfPoles; z++) {
+		Poles_imag_part[z] = (*frequencyInfo).low + poleSpacing*z;
+		Poles_real_part[z] = -Poles_imag_part[z] / Real_part_Divisor;
+	}
+
+	//Set Real Poles
+	for (int z = 0; z < NRealPoles; z++) {
+		Real_Poles[z] = 2*M_PI*Poles_real_part[z];
+	}
+	
+	//Set Complex Poles
+	int poleIndex = 0;
 	for (int z = 0; z < NComplexPoles/2; z++) {
-		for (int p = 0; p< 2; p++) {
-			Complex_Poles[o].x = 2*M_PI*(Poles_imag_part[NRealPoles + z] * B[p]);
-			Complex_Poles[o].y = 2*M_PI*(Poles_imag_part[NRealPoles + z] * C[p]);
-			o++;
+		for (int i = 0; i< 2; i++) {
+			Complex_Poles[poleIndex].x = 2*M_PI*(Poles_real_part[NRealPoles + z] * B[i]);
+			Complex_Poles[poleIndex].y = 2*M_PI*(Poles_imag_part[NRealPoles + z] * C[i]);
+			poleIndex++;
 		}
 	}
 
 
-	for (int z = 0; z < NumberOfPoles; z++) {
-		printf("Pole[%d]: %f (%f)  \n", z, Poles_imag_part[z], Poles_real_part[z]);
-	}
+	printf("\n\n********************************************************\n");
+	printf("Initial Poles\n");
 	printf("********************************************************\n");
-	printf("NumberOfPoles: %d GHz \n poleSpacing: %f \n", NumberOfPoles, poleSpacing);
-
+	for (int z = 0; z < NRealPoles; z++) {
+		printf("Real Pole[%d]: %f(%f) \n", z, Real_Poles[z]);
+	}
 	for (int z = 0; z <  NComplexPoles; z++) {
 		printf("Complex Pole[%d]: %f(%f) \n", z, Complex_Poles[z].x, Complex_Poles[z].y);
 	}
-	printf("********************************************************\n");
-	printf("NumberOfPoles: %d GHz \n poleSpacing: %f \n", NumberOfPoles, poleSpacing);
+	printf("^^^^^^^^^^^^^\n");
+	printf("NumberOfPoles: %d  \n poleSpacing: %f \n", NumberOfPoles, poleSpacing);
+
+	//###########################Ahat set up########################################
+	cuComplex *Ahat;
+	//size_t pitch;
+	//cudaMallocPitch(&devPtr, &devPitch, Ncols * sizeof(float), Nrows);
+	//cudaMallocPitch(&Ahat, &pitch, Ncols * sizeof(float), Nrows));
+	int NCol = NRealPoles * 2 + NComplexPoles * 2;
+	int NRow = (*frequencyInfo).fpointCount;
+	cudaMallocManaged(&Ahat, NRow*(NRealPoles + NComplexPoles * sizeof(double)));
+
+	printf("here 1\n");
+	int g = 0;
+	for (int col = 0; col < NRealPoles; col++) {
+		for (int row = 0; row < (*frequencyInfo).fpointCount; row++) {
+			//Ahat[col*NRow + row].x = (1 / (freq[row] - Real_Poles[col]);
+			Ahat[col*NRow + row].x = -Real_Poles[col]/(pow(Real_Poles[col],2) + pow(freq[row],2));
+			Ahat[col*NRow + row].y = -freq[row] / (pow(Real_Poles[col], 2) + pow(freq[row], 2));
+			g++;
+		};
+	};
+
+	printf("here 2\n");
+	double real;
+	double imag;
+	double s;
+	for (int col = NRealPoles; col < 4; col++) {
+		for (int row = 0; row < 10; row++) {
+			printf(" row: %d col %d index %d\n", row, col, col*NRow + row);
+			real = Complex_Poles[col - NRealPoles].x;
+			imag = Complex_Poles[col - NRealPoles].y;
+			s = freq[row];
+			//Ahat[col*NRow + row] = 2*freq[row] - 2* real)/(pow(freq[row],2)-2*freq[row]*real+pow(real,2)+POW(imag,2)
+			Ahat[col*NRow + row].x = (-2 * real*(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			Ahat[col*NRow + row].y = (-2 * s *(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			g++;
+			
+		};
+	};
+
+	printf("here 3\n");
+	for (int row = 0; row < 17; row++) {
+		for (int col = 0; col < 5; col++) {
+			printf(" %f(%f)", Ahat[col*NRow + row].x, Ahat[col*NRow + row].y);
+		};
+		printf("\n");
+	};
 
 
 /*	Poles_imag_part = linspace(f.L, f.H, IP.Nreal + IP.Ncomplex / 2);
@@ -203,6 +264,10 @@ int main()
 	cudaFree(freq);
 	cudaFree(data);
 	cudaFree(frequencyInfo);
+	cudaFree(Poles_imag_part);
+	cudaFree(Poles_real_part);
+	cudaFree(Real_Poles);
+	cudaFree(Complex_Poles);
 
 	return 0;
 }
