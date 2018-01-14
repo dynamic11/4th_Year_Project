@@ -208,7 +208,7 @@ int main()
 	//cudaMallocPitch(&Ahat, &pitch, Ncols * sizeof(float), Nrows));
 	int NCol = NRealPoles * 2 + NComplexPoles * 2;
 	int NRow = (*frequencyInfo).fpointCount;
-	cudaMallocManaged(&Ahat, NRow*(NRealPoles + NComplexPoles * sizeof(double)));
+	cudaMallocManaged(&Ahat, NRow*((NRealPoles + NComplexPoles) * sizeof(double)));
 	double s;
 	printf("here 1\n");
 	int g = 0;
@@ -225,31 +225,32 @@ int main()
 	printf("here 2\n");
 	double real;
 	double imag;
-	//int h= NRealPoles;
-	for (int col = NRealPoles; col < NComplexPoles; col++) {
+	int h= 0;
+	int y;
+	for (int col = 0; col < NComplexPoles; col=col+2) {
 		for (int row = 0; row < (*frequencyInfo).fpointCount; row++) {
-			real = Complex_Poles[col - NRealPoles].x;
-			imag = Complex_Poles[col - NRealPoles].y;
+			y = NRealPoles + col;
+			real = Complex_Poles[col].x;
+			imag = Complex_Poles[col].y;
 			s = 2 * M_PI*freq[row];
 			//Ahat[col*NRow + row] = 2*freq[row] - 2* real)/(pow(freq[row],2)-2*freq[row]*real+pow(real,2)+POW(imag,2)
 //real		
-			Ahat[col*NRow + row].x = (-2 * real*(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-			Ahat[col*NRow + row].y = (-2 * s *(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			Ahat[y*NRow + row].x = (-2 * real*(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			Ahat[y*NRow + row].y = (-2 * s *(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
 			
 			
 			//imag
-			//Ahat[col+1*NRow + row].x = (-2*imag*(pow(real, 2) - pow(s, 2) + pow(imag, 2))) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-			//Ahat[col+1*NRow + row].y = (-4*real*imag*s) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			Ahat[(y+1)*NRow + row].x = (-2*imag*(pow(real, 2) - pow(s, 2) + pow(imag, 2))) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			Ahat[(y+1)*NRow + row].y = (-4*real*imag*s) / (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
 			g++;
 
 			
 		};
-		//h++;
+		h++;
 	};
-
 	printf("here 3\n");
 	for (int row = 0; row < 17; row++) {
-		for (int col = 0; col < 4; col++) {
+		for (int col = 0; col < 7; col++) {
 			printf(" %.4e(%f)", Ahat[col*NRow + row].x, Ahat[col*NRow + row].y);
 		};
 		printf("\n");
