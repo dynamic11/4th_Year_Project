@@ -229,7 +229,7 @@ int main()
 	cudaMallocManaged(&Apattern, (NRealPoles + NComplexPoles+ NPorts) * sizeof(int));
 
 	int isReal = 1;
-	for (int i = 0; i < NRealPoles + NComplexPoles * 2 + NPorts; i++) {
+	for (int i = 0; i < NRealPoles*2 + NComplexPoles * 2 + NPorts; i++) {
 		if (i < NRealPoles) {
 			Apattern[i]=1;	
 		}else if (i < NRealPoles+NComplexPoles) {
@@ -249,7 +249,7 @@ int main()
 
 
 	printf(" A Pattern: ");
-	for (int i = 0; i < NRealPoles + NComplexPoles * 2 + NPorts; i++) {
+	for (int i = 0; i < NRealPoles*2 + NComplexPoles * 2 + NPorts; i++) {
 			printf("%d ", Apattern[i]);
 	};
 	printf("\n");
@@ -311,9 +311,9 @@ int main()
 				Ahat[col*NRow + row].y = 2 * (pow(real, 3)*data[row].y + pow(real, 2)*data[row].x*s + real* data[row].y*pow(s, 2) + real* data[row].y*pow(imag, 2) - s*data[row].x*pow(imag, 2) + data[row].x*pow(s, 3)) / denum;
 			}
 			else if (Apattern[col] == -3) {
-				denum = pow(real, 4) + 2 * pow(real, 2)*pow(s, 2) + 2 * pow(real, 2)*pow(imag, 2) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4);
-				Ahat[col*NRow + row].x = 2 * (imag*pow(real, 2)*data[row].x - imag*data[row].y* pow(s, 2) + real* data[row].x*pow(imag, 3) -2*real*imag* data[row].y*s + s*data[row].y*pow(imag, 2) - s* data[row].y*pow(s, 3)) / denum;
-				Ahat[col*NRow + row].y = -2 * (2*imag*data[row].x*real*s + pow(real, 2)*data[row].y*imag - imag* data[row].y*pow(s, 2) +  data[row].y*pow(imag, 3))  / denum;
+				denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+				Ahat[col*NRow + row].x = 2*imag*(pow(real, 2)*data[row].x - data[row].x* pow(s, 2) + data[row].x*pow(imag, 2) -2*real*data[row].y*s) / denum;
+				Ahat[col*NRow + row].y = 2 *imag*(2*data[row].x*real*s + pow(real, 2)*data[row].y - data[row].y*pow(s, 2) + data[row].y*pow(imag,2))  / denum;
 			}
 
 			//imag			
