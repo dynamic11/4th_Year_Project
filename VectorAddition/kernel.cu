@@ -7,18 +7,73 @@
 #include "kernel.h"
 #define _USE_MATH_DEFINES
 #include <math.h>
+#include <time.h>
+#include "device_launch_parameters.h"
 
 const int SIZE = 1024;
 const double MINFREQ = 1e-6;
 using namespace std;
 bool debug;
 
-//__global__ void VectorAdd(int *a, int *b, int *c, int n)
-//{
-//	int i = threadIdx.x;
-//	if(i < n)
-//		c[i] = a[i] + b[i];
-//}
+__global__ void VectorAdd(double *freq, cuComplex *Ahat, cuComplex *data, cuComplex *Poles, frequency *frequencyInfo, int *Apattern, int Ahat_size, int NComplexPoles, int NRealPoles)
+{
+	double real=0;
+	double imag=0;
+	double denum=0;
+	int poleNumb = 0;
+	int NRow = (*frequencyInfo).fpointCount;
+	double s;
+	int test = 0;
+		int col = blockIdx.x;
+		int row = threadIdx.x;
+		if (col > 17) {
+			poleNumb = col - 17;
+		}
+		else {
+			poleNumb = col;
+		}
+
+		real = Poles[poleNumb].x;
+		imag = Poles[poleNumb].y;
+
+			s = 2 * M_PI*freq[row];
+
+		//real		
+		if (Apattern[col] == 1) {
+			Ahat[col*NRow + row].x = -real / (pow(real, 2) + pow(s, 2));
+			Ahat[col*NRow + row].y = -s / (pow(real, 2) + pow(s, 2));
+		}
+		else if (Apattern[col] == 2) {
+			denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			Ahat[col*NRow + row].x = -2 * (real*(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / denum;
+			Ahat[col*NRow + row].y = -2 * (s *(pow(real, 2) + pow(s, 2) - pow(imag, 2))) / denum;
+		}
+		else if (Apattern[col] == 3) {
+			denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			Ahat[(col)*NRow + row].x = (-2 * imag*(pow(real, 2) - pow(s, 2) + pow(imag, 2))) / denum;
+			Ahat[(col)*NRow + row].y = (-4 * real*imag*s) / denum;
+		}
+		else if (Apattern[col] == 4) {
+			Ahat[col*NRow + row].x = 1;
+			Ahat[col*NRow + row].y = 0;
+		}
+		else if (Apattern[col] == -1) {
+			denum = pow(real, 2) + pow(imag, 2) - 2 * imag*s + pow(s, 2);
+			Ahat[col*NRow + row].x = (real*data[row].x - data[row].y*s + data[row].y*imag) / denum;
+			Ahat[col*NRow + row].y = (s*data[row].x - data[row].x*imag + data[row].y*real) / denum;
+		}
+		else if (Apattern[col] == -2) {
+			denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			Ahat[col*NRow + row].x = 2 * (pow(real, 3)*data[row].x - pow(real, 2)*data[row].y*s + real* data[row].x*pow(s, 2) + real* data[row].x*pow(imag, 2) + s*data[row].y*pow(imag, 2) - data[row].y*pow(s, 3)) / denum;
+			Ahat[col*NRow + row].y = 2 * (pow(real, 3)*data[row].y + pow(real, 2)*data[row].x*s + real* data[row].y*pow(s, 2) + real* data[row].y*pow(imag, 2) - s*data[row].x*pow(imag, 2) + data[row].x*pow(s, 3)) / denum;
+		}
+		else if (Apattern[col] == -3) {
+			denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+			Ahat[col*NRow + row].x = 2 * imag*(pow(real, 2)*data[row].x - data[row].x* pow(s, 2) + data[row].x*pow(imag, 2) - 2 * real*data[row].y*s) / denum;
+			Ahat[col*NRow + row].y = 2 * imag*(2 * data[row].x*real*s + pow(real, 2)*data[row].y - data[row].y*pow(s, 2) + data[row].y*pow(imag, 2)) / denum;
+		}
+
+}
 //
 //void readFile(char *fileName, int *data)
 //{
@@ -36,7 +91,7 @@ int main()
 
 	//###########################Reading File########################################
 
-	
+
 
 	//Ali: var to store freq points in data (upto 1024 data points)
 	double *freq;
@@ -54,14 +109,15 @@ int main()
 	cudaMallocManaged(&frequencyInfo, sizeof(frequency));
 
 	std::string::size_type sz;
-	
+
 
 	ifstream infile(dataFileName);
-	
+
 	//Ali: Attempt to open data file 
 	if (!infile) {
 		std::cout << "While opening data file an error was encountered" << std::endl;
-	} else {
+	}
+	else {
 		string line;
 		int fileColumn, freqCount = 0;
 		(*frequencyInfo).fpointCount = 0;
@@ -94,7 +150,8 @@ int main()
 					if (freqCount == 0) {
 						(*frequencyInfo).high = freq[freqCount];
 						(*frequencyInfo).low = freq[freqCount];
-					}else {
+					}
+					else {
 						//Ali: if current freq is greater than highest then update 
 						if ((*frequencyInfo).high < freq[freqCount]) {
 							(*frequencyInfo).high = freq[freqCount];
@@ -102,7 +159,7 @@ int main()
 						//Ali: if current freq is smaller than lowest then update 
 						if ((*frequencyInfo).low > freq[freqCount]) {
 							(*frequencyInfo).low = freq[freqCount];
-						}	
+						}
 					}
 
 				}
@@ -119,11 +176,11 @@ int main()
 			//Ali: If line is skipped then dont add to freq count
 			if (!skipline) {
 				freqCount++;
-			}		
+			}
 		}
 
 		//Ali: Update total freq count
-		(*frequencyInfo).fpointCount= freqCount;
+		(*frequencyInfo).fpointCount = freqCount;
 
 		//Ali: make sure the min is atleast 1e-6
 		if ((*frequencyInfo).low < MINFREQ) {
@@ -164,12 +221,12 @@ int main()
 	cudaMallocManaged(&Complex_Poles, NComplexPoles * sizeof(cuComplex));
 
 	cuComplex *Poles;
-	cudaMallocManaged(&Poles, (NRealPoles+ NComplexPoles) * sizeof(cuComplex));
+	cudaMallocManaged(&Poles, (NRealPoles + NComplexPoles) * sizeof(cuComplex));
 
 	int B[2] = { 1, 1 };
 	int C[2] = { 1, -1 };
 
-	double poleSpacing = ((*frequencyInfo).high - (*frequencyInfo).low) / (NumberOfPoles-1);
+	double poleSpacing = ((*frequencyInfo).high - (*frequencyInfo).low) / (NumberOfPoles - 1);
 
 	for (int z = 0; z < NumberOfPoles; z++) {
 		Poles_imag_part[z] = (*frequencyInfo).low + poleSpacing*z;
@@ -178,25 +235,26 @@ int main()
 
 	//Set Real Poles
 	for (int z = 0; z < NRealPoles; z++) {
-		Real_Poles[z] = 2*M_PI*Poles_real_part[z];
+		Real_Poles[z] = 2 * M_PI*Poles_real_part[z];
 	}
-	
+
 	//Set Complex Poles
 	int poleIndex = 0;
-	for (int z = 0; z < NComplexPoles/2; z++) {
-		for (int i = 0; i< 2; i++) {
-			Complex_Poles[poleIndex].x = 2*M_PI*(Poles_real_part[NRealPoles + z] * B[i]);
-			Complex_Poles[poleIndex].y = 2*M_PI*(Poles_imag_part[NRealPoles + z] * C[i]);
+	for (int z = 0; z < NComplexPoles / 2; z++) {
+		for (int i = 0; i < 2; i++) {
+			Complex_Poles[poleIndex].x = 2 * M_PI*(Poles_real_part[NRealPoles + z] * B[i]);
+			Complex_Poles[poleIndex].y = 2 * M_PI*(Poles_imag_part[NRealPoles + z] * C[i]);
 			poleIndex++;
 		}
 	}
 
 	//merge Poles into one matrix
 	printf("444444\n");
-	for (int z = 0; z < (NComplexPoles+ NRealPoles); z++) {
+	for (int z = 0; z < (NComplexPoles + NRealPoles); z++) {
 		if (z < NRealPoles) {
 			Poles[z].x = Real_Poles[z];
-		}else {
+		}
+		else {
 			Poles[z].x = Complex_Poles[z - NRealPoles].x;
 			Poles[z].y = Complex_Poles[z - NRealPoles].y;
 		}
@@ -209,7 +267,7 @@ int main()
 	for (int z = 0; z < NRealPoles; z++) {
 		printf("Real Pole[%d]: %f(%f) \n", z, Real_Poles[z]);
 	}
-	for (int z = 0; z <  NComplexPoles; z++) {
+	for (int z = 0; z < NComplexPoles; z++) {
 		printf("Complex Pole[%d]: %f(%f) \n", z, Complex_Poles[z].x, Complex_Poles[z].y);
 	}
 	printf("^^^^^^^^^^^^^\n");
@@ -226,21 +284,24 @@ int main()
 	//cudaMallocPitch(&Ahat, &pitch, Ncols * sizeof(float), Nrows));
 	int NPorts = 1;
 	int* Apattern;
-	cudaMallocManaged(&Apattern, (NRealPoles + NComplexPoles+ NPorts) * sizeof(int));
+	cudaMallocManaged(&Apattern, (NRealPoles + NComplexPoles + NPorts) * sizeof(int));
 
 	int isReal = 1;
-	for (int i = 0; i < NRealPoles*2 + NComplexPoles * 2 + NPorts; i++) {
+	for (int i = 0; i < NRealPoles * 2 + NComplexPoles * 2 + NPorts; i++) {
 		if (i < NRealPoles) {
-			Apattern[i]=1;	
-		}else if (i < NRealPoles+NComplexPoles) {
+			Apattern[i] = 1;
+		}
+		else if (i < NRealPoles + NComplexPoles) {
 			Apattern[i] = (isReal) ? 2 : 3;
-			isReal ^= 1;	
-		}else if (i < NRealPoles + NComplexPoles+NPorts) {
+			isReal ^= 1;
+		}
+		else if (i < NRealPoles + NComplexPoles + NPorts) {
 			Apattern[i] = 4;
-		}else if ((i- NComplexPoles - NPorts- NRealPoles) < NRealPoles) {
+		}
+		else if ((i - NComplexPoles - NPorts - NRealPoles) < NRealPoles) {
 			Apattern[i] = -1;
 		}
-		else if ((i - NComplexPoles - NPorts - NRealPoles)  < NRealPoles + NComplexPoles) {
+		else if ((i - NComplexPoles - NPorts - NRealPoles) < NRealPoles + NComplexPoles) {
 			Apattern[i] = (isReal) ? -2 : -3;
 			isReal ^= 1;
 		}
@@ -249,83 +310,118 @@ int main()
 
 
 	printf(" A Pattern: ");
-	for (int i = 0; i < NRealPoles*2 + NComplexPoles * 2 + NPorts; i++) {
-			printf("%d ", Apattern[i]);
+	for (int i = 0; i < NRealPoles * 2 + NComplexPoles * 2 + NPorts; i++) {
+		printf("%d ", Apattern[i]);
 	};
 	printf("\n");
 
 	int NCol = NRealPoles * 2 + NComplexPoles * 2;
 	int NRow = (*frequencyInfo).fpointCount;
-	cudaMallocManaged(&Ahat, NRow*((2*NRealPoles + 2*NComplexPoles+NPorts) * sizeof(double)));
+	cudaMallocManaged(&Ahat, NRow*((2 * NRealPoles + 2 * NComplexPoles + NPorts) * sizeof(double)));
 	double s;
 	printf("here 1\n");
 	int g = 0;
-/*	for (int col = 0; col < NRealPoles; col++) {
-		for (int row = 0; row < (*frequencyInfo).fpointCount; row++) {
-			s = 2 * M_PI*freq[row];
-			//Ahat[col*NRow + row].x = (1 / (freq[row] - Real_Poles[col]);
-			Ahat[col*NRow + row].x = -Real_Poles[col]/(pow(Real_Poles[col],2) + pow(s,2));
-			Ahat[col*NRow + row].y = -s / (pow(Real_Poles[col], 2) + pow(s, 2));
-			g++;
+	/*	for (int col = 0; col < NRealPoles; col++) {
+			for (int row = 0; row < (*frequencyInfo).fpointCount; row++) {
+				s = 2 * M_PI*freq[row];
+				//Ahat[col*NRow + row].x = (1 / (freq[row] - Real_Poles[col]);
+				Ahat[col*NRow + row].x = -Real_Poles[col]/(pow(Real_Poles[col],2) + pow(s,2));
+				Ahat[col*NRow + row].y = -s / (pow(Real_Poles[col], 2) + pow(s, 2));
+				g++;
+			};
+		}; */
+
+
+	int Ahat_size = NComplexPoles * 2 + NRealPoles * 2 + NPorts;
+	int CPUenable = 1;
+	if(CPUenable==1){
+		clock_t tStart = clock();
+		/* Do your stuff here */
+
+		
+
+		printf("here 2\n");
+		double real;
+		double imag;
+		double denum;
+		int poleNumb = 0;
+		int test = 0;
+		for (int col = 0; col < Ahat_size; col++) {
+			real = Poles[poleNumb].x;
+			imag = Poles[poleNumb].y;
+
+			for (int row = 0; row < (*frequencyInfo).fpointCount; row++) {
+				s = 2 * M_PI*freq[row];
+
+				//real		
+				if (Apattern[col] == 1) {
+					Ahat[col*NRow + row].x = -real / (pow(real, 2) + pow(s, 2));
+					Ahat[col*NRow + row].y = -s / (pow(real, 2) + pow(s, 2));
+				}
+				else if (Apattern[col] == 2) {
+					denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+					Ahat[col*NRow + row].x = -2 * (real*(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / denum;
+					Ahat[col*NRow + row].y = -2 * (s *(pow(real, 2) + pow(s, 2) - pow(imag, 2))) / denum;
+				}
+				else if (Apattern[col] == 3) {
+					denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+					Ahat[(col)*NRow + row].x = (-2 * imag*(pow(real, 2) - pow(s, 2) + pow(imag, 2))) / denum;
+					Ahat[(col)*NRow + row].y = (-4 * real*imag*s) / denum;
+				}
+				else if (Apattern[col] == 4) {
+					Ahat[col*NRow + row].x = 1;
+					Ahat[col*NRow + row].y = 0;
+				}
+				else if (Apattern[col] == -1) {
+					denum = pow(real, 2) + pow(imag, 2) - 2 * imag*s + pow(s, 2);
+					Ahat[col*NRow + row].x = (real*data[row].x - data[row].y*s + data[row].y*imag) / denum;
+					Ahat[col*NRow + row].y = (s*data[row].x - data[row].x*imag + data[row].y*real) / denum;
+				}
+				else if (Apattern[col] == -2) {
+					denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+					Ahat[col*NRow + row].x = 2 * (pow(real, 3)*data[row].x - pow(real, 2)*data[row].y*s + real* data[row].x*pow(s, 2) + real* data[row].x*pow(imag, 2) + s*data[row].y*pow(imag, 2) - data[row].y*pow(s, 3)) / denum;
+					Ahat[col*NRow + row].y = 2 * (pow(real, 3)*data[row].y + pow(real, 2)*data[row].x*s + real* data[row].y*pow(s, 2) + real* data[row].y*pow(imag, 2) - s*data[row].x*pow(imag, 2) + data[row].x*pow(s, 3)) / denum;
+				}
+				else if (Apattern[col] == -3) {
+					denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
+					Ahat[col*NRow + row].x = 2 * imag*(pow(real, 2)*data[row].x - data[row].x* pow(s, 2) + data[row].x*pow(imag, 2) - 2 * real*data[row].y*s) / denum;
+					Ahat[col*NRow + row].y = 2 * imag*(2 * data[row].x*real*s + pow(real, 2)*data[row].y - data[row].y*pow(s, 2) + data[row].y*pow(imag, 2)) / denum;
+				}
+
+				//imag			
+				g++;
+			};
+			if (poleNumb < (NComplexPoles + NRealPoles)) {
+				poleNumb++;
+			}
+			else {
+				poleNumb = 0;
+			}
 		};
-	}; */
 
-	printf("here 2\n");
-	double real;
-	double imag;
-	double denum;
-	int poleNumb = 0;
-	int test = 0;
-	for (int col = 0; col < NComplexPoles*2+NRealPoles*2+NPorts; col++) {
-		real = Poles[poleNumb].x;
-		imag = Poles[poleNumb].y;
+		clock_t tStop = clock();
+		printf("CPU Time taken: %.6fs\n", (double)(tStop - tStart) / CLOCKS_PER_SEC);
+	}
 
-		printf("col: %d poleNumb: %d \n", col, poleNumb);
-		for (int row = 0; row < (*frequencyInfo).fpointCount; row++) {
-			s = 2 * M_PI*freq[row];
-			
-			//real		
-			if(Apattern[col] == 1){
-				Ahat[col*NRow + row].x = -real / (pow(real, 2) + pow(s, 2));
-				Ahat[col*NRow + row].y = -s / (pow(real, 2) + pow(s, 2));
-			}else if (Apattern[col] == 2) {
-				denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-				Ahat[col*NRow + row].x = -2 * (real*(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / denum;
-				Ahat[col*NRow + row].y = -2 * (s *(pow(real, 2) + pow(s, 2) - pow(imag, 2))) / denum;
-			}else if (Apattern[col] == 3) {
-				denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-				Ahat[(col)*NRow + row].x = (-2 * imag*(pow(real, 2) - pow(s, 2) + pow(imag, 2))) / denum;
-				Ahat[(col)*NRow + row].y = (-4 * real*imag*s) / denum;
-			}else if (Apattern[col] == 4) {
-				Ahat[col*NRow + row].x = 1;
-				Ahat[col*NRow + row].y = 0;
-			}
-			else if (Apattern[col] == -1) {
-				denum = pow(real, 2) + pow(imag, 2) - 2 * imag*s + pow(s, 2);
-				Ahat[col*NRow + row].x = (real*data[row].x- data[row].y*s+ data[row].y*imag) / denum;
-				Ahat[col*NRow + row].y = (s*data[row].x - data[row].x*imag + data[row].y*real) / denum;
-			}
-			else if (Apattern[col] == -2) {
-				denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-				Ahat[col*NRow + row].x = 2 * (pow(real, 3)*data[row].x - pow(real, 2)*data[row].y*s + real* data[row].x*pow(s, 2) + real* data[row].x*pow(imag, 2) + s*data[row].y*pow(imag, 2) - data[row].y*pow(s, 3)) / denum;
-				Ahat[col*NRow + row].y = 2 * (pow(real, 3)*data[row].y + pow(real, 2)*data[row].x*s + real* data[row].y*pow(s, 2) + real* data[row].y*pow(imag, 2) - s*data[row].x*pow(imag, 2) + data[row].x*pow(s, 3)) / denum;
-			}
-			else if (Apattern[col] == -3) {
-				denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-				Ahat[col*NRow + row].x = 2*imag*(pow(real, 2)*data[row].x - data[row].x* pow(s, 2) + data[row].x*pow(imag, 2) -2*real*data[row].y*s) / denum;
-				Ahat[col*NRow + row].y = 2 *imag*(2*data[row].x*real*s + pow(real, 2)*data[row].y - data[row].y*pow(s, 2) + data[row].y*pow(imag,2))  / denum;
-			}
 
-			//imag			
-			g++;		
-		};
-		if (poleNumb < (NComplexPoles + NRealPoles)) {
-			poleNumb++;
-		}
-		else {
-			poleNumb = 0;
-		}
-	};
+	clock_t start = clock();
+	VectorAdd <<<Ahat_size,(*frequencyInfo).fpointCount  >>> (freq, Ahat, data, Poles, frequencyInfo, Apattern, Ahat_size, NComplexPoles, NRealPoles);
+	cudaDeviceSynchronize();
+	clock_t stop = clock();
+	printf("GPU Time taken: %.6fs\n", (double)(stop - start) / CLOCKS_PER_SEC);
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 	FILE * fp;
 
@@ -338,10 +434,6 @@ int main()
 	};
 
 	fclose(fp);
-
-	return(0);
-	
-
 
 /*	Poles_imag_part = linspace(f.L, f.H, IP.Nreal + IP.Ncomplex / 2);
 	Poles_real_part = -Poles_imag_part / Real_part_Divisor;
