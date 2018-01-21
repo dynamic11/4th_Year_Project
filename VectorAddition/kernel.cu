@@ -15,13 +15,20 @@ const double MINFREQ = 1e-6;
 using namespace std;
 bool debug;
 
-__global__ void VectorAdd(double *freq, cuComplex *Ahat, cuComplex *data, cuComplex *Poles, frequency *frequencyInfo, int *Apattern, int Ahat_size, int NComplexPoles, int NRealPoles)
+struct dataInfo {
+	double freqHigh;
+	double freqLow;
+	int freqCount;
+	int NPorts;
+};
+
+__global__ void VectorAdd(double *freq, cuComplex *Ahat, cuComplex *data, cuComplex *Poles, dataInfo *frequencyInfo, int *Apattern, int Ahat_size, int NComplexPoles, int NRealPoles)
 {
 	double real=0;
 	double imag=0;
 	double denum=0;
 	int poleNumb = 0;
-	int NRow = (*frequencyInfo).fpointCount;
+	int NRow = (*frequencyInfo).freqCount;
 	double s;
 	int test = 0;
 		int col = blockIdx.x;
@@ -75,43 +82,10 @@ __global__ void VectorAdd(double *freq, cuComplex *Ahat, cuComplex *data, cuComp
 
 }
 //
-//void readFile(char *fileName, int *data)
-//{
-//	int i = threadIdx.x;
-//	if (i < n)
-//		c[i] = a[i] + b[i];
-//}
-
-int main()
-{
-	debug = true;
-	string dataFileName = "radial_stub^S.txt";
-	int NRealPoles = 1;
-	int NComplexPoles = 16;
-
-	//###########################Reading File########################################
-
-
-
-	//Ali: var to store freq points in data (upto 1024 data points)
-	double *freq;
-	cudaMallocManaged(&freq, SIZE * sizeof(double));
-
-	//Ali: store collected data in complex form (upto 1024 data points)
-	cuComplex *data;
-	cudaMallocManaged(&data, SIZE * sizeof(cuComplex));
-
-	//Ali: store info about the stroed data
-	//		-lowest freq
-	//		-highest freq
-	//		-number of freq points
-	frequency *frequencyInfo;
-	cudaMallocManaged(&frequencyInfo, sizeof(frequency));
-
+void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo, int NPoles) {
 	std::string::size_type sz;
 
-
-	ifstream infile(dataFileName);
+	ifstream infile(fileName);
 
 	//Ali: Attempt to open data file 
 	if (!infile) {
@@ -120,17 +94,24 @@ int main()
 	else {
 		string line;
 		int fileColumn, freqCount = 0;
-		(*frequencyInfo).fpointCount = 0;
 		bool skipline;
 		string word;
+		int currentDataCol, currentPole, startofPoleCol, endofPoleCol;
+		int dataType = 0;
 
 		//Ali: iterate through each line
 		while (getline(infile, line)) {
 			istringstream stringOfLine(line);
 			fileColumn = 0;
+			int zz = 0;
+			int dataColCount = 0;
 
 			//Ali: Iterrate through each element of line which is refered to as a column
 			while (stringOfLine) {
+				if (fileColumn == 9) {
+					break;
+				}
+
 				//load new element into a string variable called "word"
 				stringOfLine >> word;
 				skipline = false;
@@ -140,7 +121,7 @@ int main()
 					skipline = true;
 					break;
 				}
-
+				zz++;
 				//Ali: if it is the first column then data is stored as the frequency
 				if (fileColumn == 0) {
 					//Ali: translate string to int 
@@ -148,55 +129,125 @@ int main()
 
 					//Ali: if it is the forst freq reading then initialize max and min
 					if (freqCount == 0) {
-						(*frequencyInfo).high = freq[freqCount];
-						(*frequencyInfo).low = freq[freqCount];
+						(*dataInfo).freqHigh = freq[freqCount];
+						(*dataInfo).freqLow = freq[freqCount];
 					}
 					else {
 						//Ali: if current freq is greater than highest then update 
-						if ((*frequencyInfo).high < freq[freqCount]) {
-							(*frequencyInfo).high = freq[freqCount];
+						if ((*dataInfo).freqHigh < freq[freqCount]) {
+							(*dataInfo).freqHigh = freq[freqCount];
 						}
 						//Ali: if current freq is smaller than lowest then update 
-						if ((*frequencyInfo).low > freq[freqCount]) {
-							(*frequencyInfo).low = freq[freqCount];
+						if ((*dataInfo).freqLow > freq[freqCount]) {
+							(*dataInfo).freqLow = freq[freqCount];
 						}
 					}
+					fileColumn++;
 
 				}
-				//Ali: The second column is the real part of the response
-				if (fileColumn == 1) {
-					data[freqCount].x = stod(word, &sz);
+				else {
+					//printf("wwwwword:%s\n", word);
+					int currentDataCol = fileColumn - 1;
+					int currentPole = (int)(currentDataCol / (NPoles * 2));
+					int startofPoleCol = currentPole * 2 * NPoles;
+					int endofPoleCol = startofPoleCol + (currentPole + 1) * 2-1;
+
+					//printf("Z: %d NPoles:%d fileColumn:%d currentDataCol:%d currentPole:%d startofPoleCol:%d endofPoleCol:%d \n",zz, NPoles, fileColumn, currentDataCol,  currentPole, startofPoleCol,endofPoleCol);
+					if (currentDataCol >= startofPoleCol && currentDataCol <= endofPoleCol) {
+						//Ali: The second column is the real part of the response
+						if (dataType == 0) {
+							data[freqCount+ (*dataInfo).freqCount*(dataColCount)].x = stod(word, &sz);
+						}
+						//Ali: The third column is the imag part of the response
+						if (dataType == 1) {
+							data[freqCount + (*dataInfo).freqCount*(dataColCount)].y = stod(word, &sz);
+							dataColCount++;
+						}
+						dataType ^= 1;
+
+					}
+
+				//	if (currentDataCol == endofPoleCol && freqCount == (*dataInfo).freqCount-1) {
+						//dataColCount++;
+				//	}
+					
+					fileColumn++;
 				}
-				//Ali: The third column is the imag part of the response
-				if (fileColumn == 2) {
-					data[freqCount].y = stod(word, &sz);
-				}
-				fileColumn++;
 			}
+
 			//Ali: If line is skipped then dont add to freq count
 			if (!skipline) {
 				freqCount++;
 			}
-		}
+			
+			}
 
-		//Ali: Update total freq count
-		(*frequencyInfo).fpointCount = freqCount;
+			//Ali: Update total freq count
+			//(*dataInfo).freqCount = freqCount;
 
-		//Ali: make sure the min is atleast 1e-6
-		if ((*frequencyInfo).low < MINFREQ) {
-			(*frequencyInfo).low = MINFREQ;
+			//Ali: make sure the min is atleast 1e-6
+			if ((*dataInfo).freqLow < MINFREQ) {
+				(*dataInfo).freqLow = MINFREQ;
+			}
+			printf("freqcount %d\n", (*dataInfo).freqCount);
 		}
+		
 	}
 
+int main()
+{
+	debug = true;
+	string dataFileName = "radial_stub^S.txt";
+	int NRealPoles = 1;
+	int NComplexPoles = 16;
+	int NPorts = 2;
+	int NFreq = 1000;
+	int NColToTake = 0;
+
+	//###########################Reading File########################################
+
+	//Ali: var to store freq points in data (upto 1024 data points)
+	double *freq;
+	cudaMallocManaged(&freq, NFreq * sizeof(double));
+
+	for (int i = 1; i <= NPorts; i++) {
+		NColToTake += i;
+	}
+
+	//Ali: store collected data in complex form (upto 1024 data points)
+	cuComplex *data;
+	cudaMallocManaged(&data, NColToTake * NFreq * sizeof(cuComplex));
+
+	//Ali: store info about the stroed data
+	//		-lowest freq
+	//		-highest freq
+	//		-number of freq points
+	dataInfo *dataInfo;
+	cudaMallocManaged(&dataInfo, sizeof(dataInfo));
+
+	(*dataInfo).freqCount = NFreq;
+
+	readFile(dataFileName, freq, data, dataInfo, NPorts);
+	
+
 	if (debug) {
-		printf("\n\n********************************************************\n");
-		printf("extracted data\n");
-		printf("********************************************************\n");
-		for (int z = 0; z < (*frequencyInfo).fpointCount; z++) {
-			printf("Z: %d FREQ: %f RESP: %f(%f) \n", z, freq[z], data[z].x, data[z].y);
+
+		FILE * fp;
+		fp = fopen("1_extractedData.txt", "w+");
+
+		fprintf(fp, "********************************************************\n");
+		fprintf(fp, "extracted data\n");
+		fprintf(fp, "********************************************************\n");
+		for (int i = 0; i < NColToTake; i++) {
+			fprintf(fp, "\n********************************************************\n");
+			fprintf(fp, "col: %d \n", i);
+			for (int z = 0; z <= (*dataInfo).freqCount; z++) {
+				fprintf(fp, "Z: %d FREQ: %f %f(%f) \n", z, freq[z], data[i*NFreq + z].x, data[i*NFreq + z].y);
+			}
 		}
+		fclose(fp);
 		printf("^^^^^^^^^^^^^^^^^^^\n");
-		printf("HiegestFREQ: %f GHz \n LowestFREQ: %f GHz \n FreqPoints %d\n", (*frequencyInfo).high, (*frequencyInfo).low, (*frequencyInfo).fpointCount);
+		printf("HiegestFREQ: %f GHz \n LowestFREQ: %f GHz \n FreqPoints %d\n", (*dataInfo).freqHigh, (*dataInfo).freqLow, (*dataInfo).freqCount);
 	}
 
 
@@ -226,10 +277,10 @@ int main()
 	int B[2] = { 1, 1 };
 	int C[2] = { 1, -1 };
 
-	double poleSpacing = ((*frequencyInfo).high - (*frequencyInfo).low) / (NumberOfPoles - 1);
+	double poleSpacing = ((*dataInfo).freqHigh - (*dataInfo).freqLow) / (NumberOfPoles - 1);
 
 	for (int z = 0; z < NumberOfPoles; z++) {
-		Poles_imag_part[z] = (*frequencyInfo).low + poleSpacing*z;
+		Poles_imag_part[z] = (*dataInfo).freqLow + poleSpacing*z;
 		Poles_real_part[z] = -Poles_imag_part[z] / Real_part_Divisor;
 	}
 
@@ -249,8 +300,7 @@ int main()
 	}
 
 	//merge Poles into one matrix
-	printf("444444\n");
-	for (int z = 0; z < (NComplexPoles + NRealPoles); z++) {
+ 	for (int z = 0; z < (NComplexPoles + NRealPoles); z++) {
 		if (z < NRealPoles) {
 			Poles[z].x = Real_Poles[z];
 		}
@@ -260,7 +310,6 @@ int main()
 		}
 	}
 
-	printf("444444\n");
 	printf("\n\n********************************************************\n");
 	printf("Initial Poles\n");
 	printf("********************************************************\n");
@@ -282,7 +331,6 @@ int main()
 	//size_t pitch;
 	//cudaMallocPitch(&devPtr, &devPitch, Ncols * sizeof(float), Nrows);
 	//cudaMallocPitch(&Ahat, &pitch, Ncols * sizeof(float), Nrows));
-	int NPorts = 1;
 	int* Apattern;
 	cudaMallocManaged(&Apattern, (NRealPoles + NComplexPoles + NPorts) * sizeof(int));
 
@@ -316,7 +364,7 @@ int main()
 	printf("\n");
 
 	int NCol = NRealPoles * 2 + NComplexPoles * 2;
-	int NRow = (*frequencyInfo).fpointCount;
+	int NRow = (*dataInfo).freqCount;
 	cudaMallocManaged(&Ahat, NRow*((2 * NRealPoles + 2 * NComplexPoles + NPorts) * sizeof(double)));
 	double s;
 	printf("here 1\n");
@@ -350,7 +398,7 @@ int main()
 			real = Poles[poleNumb].x;
 			imag = Poles[poleNumb].y;
 
-			for (int row = 0; row < (*frequencyInfo).fpointCount; row++) {
+			for (int row = 0; row < (*dataInfo).freqCount; row++) {
 				s = 2 * M_PI*freq[row];
 
 				//real		
@@ -405,7 +453,7 @@ int main()
 
 
 	clock_t start = clock();
-	VectorAdd <<<Ahat_size,(*frequencyInfo).fpointCount  >>> (freq, Ahat, data, Poles, frequencyInfo, Apattern, Ahat_size, NComplexPoles, NRealPoles);
+	VectorAdd <<<Ahat_size,(*dataInfo).freqCount  >>> (freq, Ahat, data, Poles, dataInfo, Apattern, Ahat_size, NComplexPoles, NRealPoles);
 	cudaDeviceSynchronize();
 	clock_t stop = clock();
 	printf("GPU Time taken: %.6fs\n", (double)(stop - start) / CLOCKS_PER_SEC);
@@ -425,14 +473,13 @@ int main()
 
 	FILE * fp;
 
-	fp = fopen("file.txt", "w+");
-	for (int row = 0; row <(*frequencyInfo).fpointCount; row++) {
+	fp = fopen("2_Amatrix.txt", "w+");
+	for (int row = 0; row <(*dataInfo).freqCount; row++) {
 		for (int col = 0; col < NComplexPoles*2 + NRealPoles*2 + NPorts; col++) {
 			fprintf(fp," %.4e(%.4e)", Ahat[col*NRow + row].x, Ahat[col*NRow + row].y);
 		};
 		fprintf(fp,"\n");
 	};
-
 	fclose(fp);
 
 /*	Poles_imag_part = linspace(f.L, f.H, IP.Nreal + IP.Ncomplex / 2);
@@ -450,7 +497,7 @@ int main()
 
 	cudaFree(freq);
 	cudaFree(data);
-	cudaFree(frequencyInfo);
+	cudaFree(dataInfo);
 	cudaFree(Poles_imag_part);
 	cudaFree(Poles_real_part);
 	cudaFree(Real_Poles);
