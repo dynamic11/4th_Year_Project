@@ -108,7 +108,7 @@ void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo
 
 			//Ali: Iterrate through each element of line which is refered to as a column
 			while (stringOfLine) {
-				if (fileColumn == 9) {
+				if (fileColumn == 2*pow(NPoles,2)+1) {
 					break;
 				}
 
@@ -197,11 +197,11 @@ void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo
 int main()
 {
 	debug = true;
-	string dataFileName = "radial_stub^S.txt";
+	string dataFileName = "inductor4^S.txt";
 	int NRealPoles = 1;
 	int NComplexPoles = 16;
-	int NPorts = 2;
-	int NFreq = 1000;
+	int NPorts = 4;
+	int NFreq = 1001;
 	int NColToTake = 0;
 
 	//###########################Reading File########################################
@@ -241,7 +241,7 @@ int main()
 		for (int i = 0; i < NColToTake; i++) {
 			fprintf(fp, "\n********************************************************\n");
 			fprintf(fp, "col: %d \n", i);
-			for (int z = 0; z <= (*dataInfo).freqCount; z++) {
+			for (int z = 0; z < (*dataInfo).freqCount; z++) {
 				fprintf(fp, "Z: %d FREQ: %f %f(%f) \n", z, freq[z], data[i*NFreq + z].x, data[i*NFreq + z].y);
 			}
 		}
