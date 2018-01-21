@@ -18,7 +18,7 @@ bool debug;
 struct dataInfo {
 	double freqHigh;
 	double freqLow;
-	int freqCount;
+	int NFreq;
 	int NPorts;
 };
 
@@ -28,7 +28,7 @@ __global__ void VectorAdd(double *freq, cuComplex *Ahat, cuComplex *data, cuComp
 	double imag=0;
 	double denum=0;
 	int poleNumb = 0;
-	int NRow = (*frequencyInfo).freqCount;
+	int NRow = (*frequencyInfo).NFreq;
 	double s;
 	int test = 0;
 		int col = blockIdx.x;
@@ -82,7 +82,7 @@ __global__ void VectorAdd(double *freq, cuComplex *Ahat, cuComplex *data, cuComp
 
 }
 //
-void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo, int NPoles) {
+void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo) {
 	std::string::size_type sz;
 
 	ifstream infile(fileName);
@@ -96,19 +96,19 @@ void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo
 		int fileColumn, freqCount = 0;
 		bool skipline;
 		string word;
-		int currentDataCol, currentPole, startofPoleCol, endofPoleCol;
-		int dataType = 0;
+		int currentFileDataCol = 0, currentPole = 0, startofPoleCol = 0, endofPoleCol = 0, dataType = 0;
 
 		//Ali: iterate through each line
 		while (getline(infile, line)) {
 			istringstream stringOfLine(line);
 			fileColumn = 0;
-			int zz = 0;
 			int dataColCount = 0;
 
 			//Ali: Iterrate through each element of line which is refered to as a column
 			while (stringOfLine) {
-				if (fileColumn == 2*pow(NPoles,2)+1) {
+
+				//Ali: escape after last pole
+				if (fileColumn == 2 * pow((*dataInfo).NPorts, 2) + 1) {
 					break;
 				}
 
@@ -121,7 +121,7 @@ void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo
 					skipline = true;
 					break;
 				}
-				zz++;
+
 				//Ali: if it is the first column then data is stored as the frequency
 				if (fileColumn == 0) {
 					//Ali: translate string to int 
@@ -146,53 +146,44 @@ void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo
 
 				}
 				else {
-					//printf("wwwwword:%s\n", word);
-					int currentDataCol = fileColumn - 1;
-					int currentPole = (int)(currentDataCol / (NPoles * 2));
-					int startofPoleCol = currentPole * 2 * NPoles;
-					int endofPoleCol = startofPoleCol + (currentPole + 1) * 2-1;
+					//Ali: stores the data coloumn number without freq coloumn
+					currentFileDataCol = fileColumn - 1;
+					//Ali: calculate the current port we are reading
+					currentPole = (int)(currentFileDataCol / ((*dataInfo).NPorts * 2));
+					//Ali: calculate the start coloumn and end coloumn to start and stop storing data for port
+					startofPoleCol = currentPole * 2 * (*dataInfo).NPorts;
+					endofPoleCol = startofPoleCol + (currentPole + 1) * 2 - 1;
 
-					//printf("Z: %d NPoles:%d fileColumn:%d currentDataCol:%d currentPole:%d startofPoleCol:%d endofPoleCol:%d \n",zz, NPoles, fileColumn, currentDataCol,  currentPole, startofPoleCol,endofPoleCol);
-					if (currentDataCol >= startofPoleCol && currentDataCol <= endofPoleCol) {
+					//Ali: check if it should store the current coloumn
+					if (currentFileDataCol >= startofPoleCol && currentFileDataCol <= endofPoleCol) {
 						//Ali: The second column is the real part of the response
 						if (dataType == 0) {
-							data[freqCount+ (*dataInfo).freqCount*(dataColCount)].x = stod(word, &sz);
-						}
+							data[freqCount + (*dataInfo).NFreq*(dataColCount)].x = stod(word, &sz);
+						}//endif
 						//Ali: The third column is the imag part of the response
 						if (dataType == 1) {
-							data[freqCount + (*dataInfo).freqCount*(dataColCount)].y = stod(word, &sz);
+							data[freqCount + (*dataInfo).NFreq*(dataColCount)].y = stod(word, &sz);
 							dataColCount++;
-						}
+						}//endif
 						dataType ^= 1;
-
-					}
-
-				//	if (currentDataCol == endofPoleCol && freqCount == (*dataInfo).freqCount-1) {
-						//dataColCount++;
-				//	}
-					
+					} //endif
 					fileColumn++;
-				}
-			}
+				}//endif
+			}//endwhile
 
 			//Ali: If line is skipped then dont add to freq count
 			if (!skipline) {
 				freqCount++;
 			}
-			
-			}
-
-			//Ali: Update total freq count
-			//(*dataInfo).freqCount = freqCount;
-
-			//Ali: make sure the min is atleast 1e-6
-			if ((*dataInfo).freqLow < MINFREQ) {
-				(*dataInfo).freqLow = MINFREQ;
-			}
-			printf("freqcount %d\n", (*dataInfo).freqCount);
 		}
-		
+
+		//Ali: make sure the min is atleast 1e-6
+		if ((*dataInfo).freqLow < MINFREQ) {
+			(*dataInfo).freqLow = MINFREQ;
+		}
+		printf("freqcount %d\n", (*dataInfo).NFreq);
 	}
+}//enfunction
 
 int main()
 {
@@ -206,13 +197,14 @@ int main()
 
 	//###########################Reading File########################################
 
-	//Ali: var to store freq points in data (upto 1024 data points)
-	double *freq;
-	cudaMallocManaged(&freq, NFreq * sizeof(double));
-
+	//Ali: Find out how many col we wil have to store based on number of ports
 	for (int i = 1; i <= NPorts; i++) {
 		NColToTake += i;
 	}
+
+	//Ali: var to store freq points in data (upto 1024 data points)
+	double *freq;
+	cudaMallocManaged(&freq, NFreq * sizeof(double));
 
 	//Ali: store collected data in complex form (upto 1024 data points)
 	cuComplex *data;
@@ -225,9 +217,11 @@ int main()
 	dataInfo *dataInfo;
 	cudaMallocManaged(&dataInfo, sizeof(dataInfo));
 
-	(*dataInfo).freqCount = NFreq;
+	(*dataInfo).NFreq = NFreq;
+	(*dataInfo).NPorts = NPorts;
 
-	readFile(dataFileName, freq, data, dataInfo, NPorts);
+	//Ali: extract data form file
+	readFile(dataFileName, freq, data, dataInfo);
 	
 
 	if (debug) {
@@ -241,16 +235,14 @@ int main()
 		for (int i = 0; i < NColToTake; i++) {
 			fprintf(fp, "\n********************************************************\n");
 			fprintf(fp, "col: %d \n", i);
-			for (int z = 0; z < (*dataInfo).freqCount; z++) {
+			for (int z = 0; z < (*dataInfo).NFreq; z++) {
 				fprintf(fp, "Z: %d FREQ: %f %f(%f) \n", z, freq[z], data[i*NFreq + z].x, data[i*NFreq + z].y);
 			}
 		}
 		fclose(fp);
 		printf("^^^^^^^^^^^^^^^^^^^\n");
-		printf("HiegestFREQ: %f GHz \n LowestFREQ: %f GHz \n FreqPoints %d\n", (*dataInfo).freqHigh, (*dataInfo).freqLow, (*dataInfo).freqCount);
+		printf("HiegestFREQ: %f GHz \n LowestFREQ: %f GHz \n FreqPoints %d\n", (*dataInfo).freqHigh, (*dataInfo).freqLow, (*dataInfo).NFreq);
 	}
-
-
 
 	//###########################Initial Pole Guess########################################
 
@@ -355,8 +347,6 @@ int main()
 		}
 	};
 
-
-
 	printf(" A Pattern: ");
 	for (int i = 0; i < NRealPoles * 2 + NComplexPoles * 2 + NPorts; i++) {
 		printf("%d ", Apattern[i]);
@@ -364,7 +354,7 @@ int main()
 	printf("\n");
 
 	int NCol = NRealPoles * 2 + NComplexPoles * 2;
-	int NRow = (*dataInfo).freqCount;
+	int NRow = (*dataInfo).NFreq;
 	cudaMallocManaged(&Ahat, NRow*((2 * NRealPoles + 2 * NComplexPoles + NPorts) * sizeof(double)));
 	double s;
 	printf("here 1\n");
@@ -398,7 +388,7 @@ int main()
 			real = Poles[poleNumb].x;
 			imag = Poles[poleNumb].y;
 
-			for (int row = 0; row < (*dataInfo).freqCount; row++) {
+			for (int row = 0; row < (*dataInfo).NFreq; row++) {
 				s = 2 * M_PI*freq[row];
 
 				//real		
@@ -453,28 +443,16 @@ int main()
 
 
 	clock_t start = clock();
-	VectorAdd <<<Ahat_size,(*dataInfo).freqCount  >>> (freq, Ahat, data, Poles, dataInfo, Apattern, Ahat_size, NComplexPoles, NRealPoles);
+	VectorAdd <<<Ahat_size,(*dataInfo).NFreq  >>> (freq, Ahat, data, Poles, dataInfo, Apattern, Ahat_size, NComplexPoles, NRealPoles);
 	cudaDeviceSynchronize();
 	clock_t stop = clock();
 	printf("GPU Time taken: %.6fs\n", (double)(stop - start) / CLOCKS_PER_SEC);
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 	FILE * fp;
 
 	fp = fopen("2_Amatrix.txt", "w+");
-	for (int row = 0; row <(*dataInfo).freqCount; row++) {
+	for (int row = 0; row <(*dataInfo).NFreq; row++) {
 		for (int col = 0; col < NComplexPoles*2 + NRealPoles*2 + NPorts; col++) {
 			fprintf(fp," %.4e(%.4e)", Ahat[col*NRow + row].x, Ahat[col*NRow + row].y);
 		};
