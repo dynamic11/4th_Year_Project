@@ -188,10 +188,10 @@ void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo
 int main()
 {
 	debug = true;
-	string dataFileName = "inductor4^S.txt";
+	string dataFileName = "radial_stub^S.txt";
 	int NRealPoles = 1;
 	int NComplexPoles = 16;
-	int NPorts = 4;
+	int NPorts = 2;
 	int NFreq = 1001;
 	int NColToTake = 0;
 
@@ -222,7 +222,7 @@ int main()
 
 	//Ali: extract data form file
 	readFile(dataFileName, freq, data, dataInfo);
-	
+
 
 	if (debug) {
 
@@ -292,7 +292,7 @@ int main()
 	}
 
 	//merge Poles into one matrix
- 	for (int z = 0; z < (NComplexPoles + NRealPoles); z++) {
+	for (int z = 0; z < (NComplexPoles + NRealPoles); z++) {
 		if (z < NRealPoles) {
 			Poles[z].x = Real_Poles[z];
 		}
@@ -356,8 +356,7 @@ int main()
 	int NCol = NRealPoles * 2 + NComplexPoles * 2;
 	int NRow = (*dataInfo).NFreq;
 
-	cuComplex *Ahat;
-	cudaMallocManaged(&Ahat, NRow*((2 * NRealPoles + 2 * NComplexPoles + NPorts) * sizeof(double)));
+
 	double s;
 	printf("here 1\n");
 	int g = 0;
@@ -373,19 +372,19 @@ int main()
 
 
 
-	//check the number f frequency points
-	//if(Nfreq)
+		//check the number f frequency points
+		//if(Nfreq)
 
-	//Ali: generate the base matrix
+		//Ali: generate the base matrix
 
-	//generate a base matric with the width (columns) of NRealPoles + 2 * NComplexPoles and length (rows) of NFreq
+		//generate a base matric with the width (columns) of NRealPoles + 2 * NComplexPoles and length (rows) of NFreq
 	int baseMatrix_NCol = NComplexPoles + NRealPoles;
 	int baseMatrix_NRow = (*dataInfo).NFreq;
 	cuComplex *baseMatrix;
 	cudaMallocManaged(&baseMatrix, baseMatrix_NRow * baseMatrix_NCol * sizeof(double));
 
 	int CPUenable = 1;
-	if(CPUenable==1){ 
+	if (CPUenable == 1 || CPUenable == 2) {
 		clock_t tStart = clock();
 		/* Do your stuff here */
 
@@ -439,6 +438,59 @@ int main()
 		fclose(fp);
 
 		printf("here 2\n");
+
+		double realBase, imagBase, realData, imagData;
+
+		int dim = NColToTake;
+
+		//Ali: generate the AhatMatrix
+		cuComplex *Ahat;
+		cudaMallocManaged(&Ahat, (dim)*NRow*(baseMatrix_NCol)*(dim+1) * sizeof(double));
+		poleNumb = 0;
+
+
+		for (int blocky = 0; blocky <= NColToTake; blocky++) {
+			for (int blockx = 0; blockx < NColToTake; blockx++) {
+				if (blocky == NColToTake) {
+					for (int col = 0; col < baseMatrix_NCol; col++) {
+						for (int row = 0; row < baseMatrix_NRow; row++) {
+
+							realBase = baseMatrix[col*NRow + row].x;
+							imagBase = baseMatrix[col*NRow + row].y;
+
+							realData = data[row + NFreq*blockx].x;
+							imagData = data[row + NFreq*blockx].y;
+
+							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+
+							Ahat[memPosition].x = (realBase*realData - imagBase*imagData);
+							Ahat[memPosition].y = (realBase*imagData - imagBase*realData);
+						}
+					}//end for col
+				}
+				else if (blocky == blockx) {
+					for (int col = 0; col < baseMatrix_NCol; col++) {
+						for (int row = 0; row < baseMatrix_NRow; row++) {
+							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+							Ahat[memPosition].x = baseMatrix[col*NRow + row].x;
+							Ahat[memPosition].y = baseMatrix[col*NRow + row].y;
+						}//end for row
+					}//end for col
+				}
+				else {
+					for (int col = 0; col < baseMatrix_NCol; col++) {
+
+						for (int row = 0; row < baseMatrix_NCol; row++) {
+							
+							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+							Ahat[memPosition].x = 0;
+							Ahat[memPosition].y = 0;
+						}//end for row
+					}//end for col
+				}//endif
+			}
+		}
+
 
 		//double denum;
 		//poleNumb = 0;
@@ -498,7 +550,7 @@ int main()
 
 		clock_t tStop = clock();
 		printf("CPU Time taken: %.6fs\n", (double)(tStop - tStart) / CLOCKS_PER_SEC);
-	}
+
 
 
 	//clock_t start = clock();
@@ -510,14 +562,29 @@ int main()
 
 	//FILE * fp;
 
-	//fp = fopen("2_Amatrix.txt", "w+");
-	//for (int row = 0; row <(*dataInfo).NFreq; row++) {
-	//	for (int col = 0; col < NComplexPoles*2 + NRealPoles*2 + NPorts; col++) {
-	//		fprintf(fp," %.4e(%.4e)", Ahat[col*NRow + row].x, Ahat[col*NRow + row].y);
-	//	};
-	//	fprintf(fp,"\n");
-	//};
-	//fclose(fp);
+	fp = fopen("2_Amatrix.txt", "w+");
+	for (int row = 0; row < NColToTake*NFreq; row++) {
+		for (int col = 0; col < baseMatrix_NCol*(NColToTake+1); col++) {
+			fprintf(fp, " %.4e(%.4e)", Ahat[col*NRow*NColToTake + row].x, Ahat[col*NRow*NColToTake + row].y);
+		}
+		fprintf(fp, "\n");
+	}
+
+
+
+	//for (int blocky = 0; blocky <= NColToTake; blocky++) {
+	//	for (int blockx = 0; blockx < NColToTake; blockx++) {
+	//		for (int row = 0; row < baseMatrix_NRow; row++) {
+	//			for (int col = 0; col < baseMatrix_NCol; col++) {
+	//				int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+	//				fprintf(fp, " %.4e(%.4e)", Ahat[memPosition].x, Ahat[memPosition].y);
+	//			};
+	//			fprintf(fp, "\n");
+	//		};
+	//	}
+	//}
+	fclose(fp);
+}
 
 /*	Poles_imag_part = linspace(f.L, f.H, IP.Nreal + IP.Ncomplex / 2);
 	Poles_real_part = -Poles_imag_part / Real_part_Divisor;
