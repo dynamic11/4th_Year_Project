@@ -442,66 +442,82 @@ int main()
 		};
 		fclose(fp);
 
-
-		double realBase, imagBase, realData, imagData;
-		int dim = NColOfData;
-
-
 		//###########################Ahat set up########################################
 		//Ali: generate the AhatMatrix
-		cuComplex *Ahat;
-		cudaMallocManaged(&Ahat, (dim)*NRow*(baseMatrix_NCol)*(dim+1) * sizeof(double));
+		double realBase, imagBase, realData, imagData;
+		int dim = NColOfData;
+		int memPosition = 0;
 		poleNumb = 0;
 
+		int NumbAYBlocks= NColOfData+1;
+		int NumbAXBlocks = NColOfData;
+		int NElementsAMatrix = NumbAXBlocks*baseMatrix_NRow*baseMatrix_NCol*NumbAYBlocks - NumbAXBlocks*baseMatrix_NRow;
 
+		cuComplex *Ahat;
+		cudaMallocManaged(&Ahat, NElementsAMatrix * sizeof(double));
+
+		//cycle trough col blocks. each block is the dimentions of the the base matrix
+		//exept blocks in the last block column b/c thye dont include the constants for d
 		for (int blocky = 0; blocky <= NColOfData; blocky++) {
 			for (int blockx = 0; blockx < NColOfData; blockx++) {
+
+				//check if it is the last blocky coloumn to multiply with data
 				if (blocky == NColOfData) {
-					for (int col = 0; col < baseMatrix_NCol; col++) {
+					for (int col = 0; col < baseMatrix_NCol-1; col++) {
 						for (int row = 0; row < baseMatrix_NRow; row++) {
 
+							//extract component if each base matrix element
 							realBase = baseMatrix[col*NRow + row].x;
 							imagBase = baseMatrix[col*NRow + row].y;
 
+							//extract components of each data element
 							realData = data[row + NFreq*blockx].x;
 							imagData = data[row + NFreq*blockx].y;
 
-							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColOfData)+col*NFreq*NColOfData + blockx*NFreq + row;
+							//calc posiiton in A matrix (memory offset)
+							memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColOfData)+col*NFreq*NColOfData + blockx*NFreq + row;
 
+							//assign
 							Ahat[memPosition].x = (realBase*realData - imagBase*imagData);
 							Ahat[memPosition].y = (realBase*imagData - imagBase*realData);
-						}
+						}//end for row
 					}//end for col
 				}
+
+				//Check if it is diaginal block elemnt that is just a reprint of base matrix
 				else if (blocky == blockx) {
 					for (int col = 0; col < baseMatrix_NCol; col++) {
 						for (int row = 0; row < baseMatrix_NRow; row++) {
-							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColOfData)+col*NFreq*NColOfData + blockx*NFreq + row;
+
+							//calc posiiton in A matrix (memory offset)
+							memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColOfData)+col*NFreq*NColOfData + blockx*NFreq + row;
+
+							//assign
 							Ahat[memPosition].x = baseMatrix[col*NRow + row].x;
 							Ahat[memPosition].y = baseMatrix[col*NRow + row].y;
 						}//end for row
 					}//end for col
 				}
+
+				//Otherwise set to zero
 				else {
 					for (int col = 0; col < baseMatrix_NCol; col++) {
-
 						for (int row = 0; row < baseMatrix_NCol; row++) {
+
+							//calc posiiton in A matrix (memory offset)
+							memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColOfData)+col*NFreq*NColOfData + blockx*NFreq + row;
 							
-							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColOfData)+col*NFreq*NColOfData + blockx*NFreq + row;
+							//assign
 							Ahat[memPosition].x = 0;
 							Ahat[memPosition].y = 0;
-						}//end for row
-					}//end for col
+						}
+					}
 				}//endif
-			}
-		}
+			}//endblockX
+		}//endblocky
 
-
-		
 		clock_t tStop = clock();
 		printf("CPU Time taken: %.6fs\n", (double)(tStop - tStart) / CLOCKS_PER_SEC);
-
-
 
 	//clock_t start = clock();
 	//VectorAdd <<<Ahat_size,(*dataInfo).NFreq  >>> (freq, Ahat, data, Poles, dataInfo, Apattern, Ahat_size, NComplexPoles, NRealPoles);
@@ -509,46 +525,17 @@ int main()
 	//clock_t stop = clock();
 	//printf("GPU Time taken: %.6fs\n", (double)(stop - start) / CLOCKS_PER_SEC);
 
-
-	//FILE * fp;
-
-	fp = fopen("2_Amatrix.txt", "w+");
+	//Ali: Write A matrix to file
+	fp = fopen("3_Amatrix.txt", "w+");
 	for (int row = 0; row < NColOfData*NFreq; row++) {
-		for (int col = 0; col < baseMatrix_NCol*(NColOfData+1); col++) {
+		for (int col = 0; col < baseMatrix_NCol*(NColOfData+1)-1; col++) {
 			fprintf(fp, " %.4e(%.4e)", Ahat[col*NRow*NColOfData + row].x, Ahat[col*NRow*NColOfData + row].y);
 		}
 		fprintf(fp, "\n");
 	}
-
-
-
-	//for (int blocky = 0; blocky <= NColToTake; blocky++) {
-	//	for (int blockx = 0; blockx < NColToTake; blockx++) {
-	//		for (int row = 0; row < baseMatrix_NRow; row++) {
-	//			for (int col = 0; col < baseMatrix_NCol; col++) {
-	//				int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
-	//				fprintf(fp, " %.4e(%.4e)", Ahat[memPosition].x, Ahat[memPosition].y);
-	//			};
-	//			fprintf(fp, "\n");
-	//		};
-	//	}
-	//}
 	fclose(fp);
 }
-
-/*	Poles_imag_part = linspace(f.L, f.H, IP.Nreal + IP.Ncomplex / 2);
-	Poles_real_part = -Poles_imag_part / Real_part_Divisor;
-
-	Real_Poles = Poles_real_part(1 : IP.Nreal);
-
-	Complex_Poles = ...
-		kron(Poles_real_part(IP.Nreal + 1:end), [1, 1]) + ...
-		kron(Poles_imag_part(IP.Nreal + 1:end), [-j, j]);
-
-	initial_Poles = 2 * pi*transpose(cat(2, Real_Poles, Complex_Poles)); */
-
 	
-
 	cudaFree(freq);
 	cudaFree(data);
 	cudaFree(dataInfo);
