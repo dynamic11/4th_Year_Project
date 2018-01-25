@@ -81,6 +81,55 @@ __global__ void VectorAdd(double *freq, cuComplex *Ahat, cuComplex *data, cuComp
 		}
 
 }
+
+
+
+__global__ void AMatrixFormulationGPU(double *freq, cuComplex *Ahat, cuComplex *data, cuComplex *Poles, dataInfo *frequencyInfo, int *Apattern, int Ahat_size, int NComplexPoles, int NRealPoles) {
+	for (int blocky = 0; blocky <= NColToTake; blocky++) {
+		for (int blockx = 0; blockx < NColToTake; blockx++) {
+			if (blocky == NColToTake) {
+				for (int col = 0; col < baseMatrix_NCol; col++) {
+					for (int row = 0; row < baseMatrix_NRow; row++) {
+
+						realBase = baseMatrix[col*NRow + row].x;
+						imagBase = baseMatrix[col*NRow + row].y;
+
+						realData = data[row + NFreq*blockx].x;
+						imagData = data[row + NFreq*blockx].y;
+
+						int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+
+						Ahat[memPosition].x = (realBase*realData - imagBase*imagData);
+						Ahat[memPosition].y = (realBase*imagData - imagBase*realData);
+					}
+				}//end for col
+			}
+			else if (blocky == blockx) {
+				for (int col = 0; col < baseMatrix_NCol; col++) {
+					for (int row = 0; row < baseMatrix_NRow; row++) {
+						int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+						Ahat[memPosition].x = baseMatrix[col*NRow + row].x;
+						Ahat[memPosition].y = baseMatrix[col*NRow + row].y;
+					}//end for row
+				}//end for col
+			}
+			else {
+				for (int col = 0; col < baseMatrix_NCol; col++) {
+
+					for (int row = 0; row < baseMatrix_NCol; row++) {
+
+						int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+						Ahat[memPosition].x = 0;
+						Ahat[memPosition].y = 0;
+					}//end for row
+				}//end for col
+			}//endif
+		}
+	}
+
+}
+
+
 //
 void readFile(string fileName, double *freq, cuComplex *data, dataInfo *dataInfo) {
 	std::string::size_type sz;
@@ -190,7 +239,7 @@ int main()
 	debug = true;
 	string dataFileName = "radial_stub^S.txt";
 	int NRealPoles = 1;
-	int NComplexPoles = 16;
+	int NComplexPoles = 2;
 	int NPorts = 2;
 	int NFreq = 1001;
 	int NColToTake = 0;
@@ -492,62 +541,7 @@ int main()
 		}
 
 
-		//double denum;
-		//poleNumb = 0;
-		//int test = 0;
-		//for (int col = 0; col < Ahat_size; col++) {
-		//	real = Poles[poleNumb].x;
-		//	imag = Poles[poleNumb].y;
-
-		//	for (int row = 0; row < (*dataInfo).NFreq; row++) {
-		//		s = 2 * M_PI*freq[row];
-
-		//		//real		
-		//		if (Apattern[col] == 1) {
-		//			Ahat[col*NRow + row].x = -real / (pow(real, 2) + pow(s, 2));
-		//			Ahat[col*NRow + row].y = -s / (pow(real, 2) + pow(s, 2));
-		//		}
-		//		else if (Apattern[col] == 2) {
-		//			denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-		//			Ahat[col*NRow + row].x = -2 * (real*(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / denum;
-		//			Ahat[col*NRow + row].y = -2 * (s *(pow(real, 2) + pow(s, 2) - pow(imag, 2))) / denum;
-		//		}
-		//		else if (Apattern[col] == 3) {
-		//			denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-		//			Ahat[(col)*NRow + row].x = (-2 * imag*(pow(real, 2) - pow(s, 2) + pow(imag, 2))) / denum;
-		//			Ahat[(col)*NRow + row].y = (-4 * real*imag*s) / denum;
-		//		}
-		//		else if (Apattern[col] == 4) {
-		//			Ahat[col*NRow + row].x = 1;
-		//			Ahat[col*NRow + row].y = 0;
-		//		}
-		//		else if (Apattern[col] == -1) {
-		//			denum = pow(real, 2) + pow(imag, 2) - 2 * imag*s + pow(s, 2);
-		//			Ahat[col*NRow + row].x = (real*data[row].x - data[row].y*s + data[row].y*imag) / denum;
-		//			Ahat[col*NRow + row].y = (s*data[row].x - data[row].x*imag + data[row].y*real) / denum;
-		//		}
-		//		else if (Apattern[col] == -2) {
-		//			denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-		//			Ahat[col*NRow + row].x = 2 * (pow(real, 3)*data[row].x - pow(real, 2)*data[row].y*s + real* data[row].x*pow(s, 2) + real* data[row].x*pow(imag, 2) + s*data[row].y*pow(imag, 2) - data[row].y*pow(s, 3)) / denum;
-		//			Ahat[col*NRow + row].y = 2 * (pow(real, 3)*data[row].y + pow(real, 2)*data[row].x*s + real* data[row].y*pow(s, 2) + real* data[row].y*pow(imag, 2) - s*data[row].x*pow(imag, 2) + data[row].x*pow(s, 3)) / denum;
-		//		}
-		//		else if (Apattern[col] == -3) {
-		//			denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
-		//			Ahat[col*NRow + row].x = 2 * imag*(pow(real, 2)*data[row].x - data[row].x* pow(s, 2) + data[row].x*pow(imag, 2) - 2 * real*data[row].y*s) / denum;
-		//			Ahat[col*NRow + row].y = 2 * imag*(2 * data[row].x*real*s + pow(real, 2)*data[row].y - data[row].y*pow(s, 2) + data[row].y*pow(imag, 2)) / denum;
-		//		}
-
-		//		//imag			
-		//		g++;
-		//	};
-		//	if (poleNumb < (NComplexPoles + NRealPoles)) {
-		//		poleNumb++;
-		//	}
-		//	else {
-		//		poleNumb = 0;
-		//	}
-		//};
-
+		
 		clock_t tStop = clock();
 		printf("CPU Time taken: %.6fs\n", (double)(tStop - tStart) / CLOCKS_PER_SEC);
 
