@@ -84,50 +84,50 @@ __global__ void VectorAdd(double *freq, cuComplex *Ahat, cuComplex *data, cuComp
 
 
 
-__global__ void AMatrixFormulationGPU(double *freq, cuComplex *Ahat, cuComplex *data, cuComplex *Poles, dataInfo *frequencyInfo, int *Apattern, int Ahat_size, int NComplexPoles, int NRealPoles) {
-	for (int blocky = 0; blocky <= NColToTake; blocky++) {
-		for (int blockx = 0; blockx < NColToTake; blockx++) {
-			if (blocky == NColToTake) {
-				for (int col = 0; col < baseMatrix_NCol; col++) {
-					for (int row = 0; row < baseMatrix_NRow; row++) {
-
-						realBase = baseMatrix[col*NRow + row].x;
-						imagBase = baseMatrix[col*NRow + row].y;
-
-						realData = data[row + NFreq*blockx].x;
-						imagData = data[row + NFreq*blockx].y;
-
-						int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
-
-						Ahat[memPosition].x = (realBase*realData - imagBase*imagData);
-						Ahat[memPosition].y = (realBase*imagData - imagBase*realData);
-					}
-				}//end for col
-			}
-			else if (blocky == blockx) {
-				for (int col = 0; col < baseMatrix_NCol; col++) {
-					for (int row = 0; row < baseMatrix_NRow; row++) {
-						int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
-						Ahat[memPosition].x = baseMatrix[col*NRow + row].x;
-						Ahat[memPosition].y = baseMatrix[col*NRow + row].y;
-					}//end for row
-				}//end for col
-			}
-			else {
-				for (int col = 0; col < baseMatrix_NCol; col++) {
-
-					for (int row = 0; row < baseMatrix_NCol; row++) {
-
-						int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
-						Ahat[memPosition].x = 0;
-						Ahat[memPosition].y = 0;
-					}//end for row
-				}//end for col
-			}//endif
-		}
-	}
-
-}
+//__global__ void AMatrixFormulationGPU(double *freq, cuComplex *Ahat, cuComplex *data, cuComplex *Poles, dataInfo *frequencyInfo, int *Apattern, int Ahat_size, int NComplexPoles, int NRealPoles) {
+//	for (int blocky = 0; blocky <= NColToTake; blocky++) {
+//		for (int blockx = 0; blockx < NColToTake; blockx++) {
+//			if (blocky == NColToTake) {
+//				for (int col = 0; col < baseMatrix_NCol; col++) {
+//					for (int row = 0; row < baseMatrix_NRow; row++) {
+//
+//						realBase = baseMatrix[col*NRow + row].x;
+//						imagBase = baseMatrix[col*NRow + row].y;
+//
+//						realData = data[row + NFreq*blockx].x;
+//						imagData = data[row + NFreq*blockx].y;
+//
+//						int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+//
+//						Ahat[memPosition].x = (realBase*realData - imagBase*imagData);
+//						Ahat[memPosition].y = (realBase*imagData - imagBase*realData);
+//					}
+//				}//end for col
+//			}
+//			else if (blocky == blockx) {
+//				for (int col = 0; col < baseMatrix_NCol; col++) {
+//					for (int row = 0; row < baseMatrix_NRow; row++) {
+//						int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+//						Ahat[memPosition].x = baseMatrix[col*NRow + row].x;
+//						Ahat[memPosition].y = baseMatrix[col*NRow + row].y;
+//					}//end for row
+//				}//end for col
+//			}
+//			else {
+//				for (int col = 0; col < baseMatrix_NCol; col++) {
+//
+//					for (int row = 0; row < baseMatrix_NCol; row++) {
+//
+//						int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+//						Ahat[memPosition].x = 0;
+//						Ahat[memPosition].y = 0;
+//					}//end for row
+//				}//end for col
+//			}//endif
+//		}
+//	}
+//
+//}
 
 
 //
@@ -242,13 +242,13 @@ int main()
 	int NComplexPoles = 2;
 	int NPorts = 2;
 	int NFreq = 1001;
-	int NColToTake = 0;
+	int NColOfData = 0;
 
 	//###########################Reading File########################################
 
 	//Ali: Find out how many col we wil have to store based on number of ports
 	for (int i = 1; i <= NPorts; i++) {
-		NColToTake += i;
+		NColOfData += i;
 	}
 
 	//Ali: var to store freq points in data (upto 1024 data points)
@@ -257,7 +257,7 @@ int main()
 
 	//Ali: store collected data in complex form (upto 1024 data points)
 	cuComplex *data;
-	cudaMallocManaged(&data, NColToTake * NFreq * sizeof(cuComplex));
+	cudaMallocManaged(&data, NColOfData * NFreq * sizeof(cuComplex));
 
 	//Ali: store info about the stroed data
 	//		-lowest freq
@@ -281,7 +281,7 @@ int main()
 		fprintf(fp, "********************************************************\n");
 		fprintf(fp, "extracted data\n");
 		fprintf(fp, "********************************************************\n");
-		for (int i = 0; i < NColToTake; i++) {
+		for (int i = 0; i < NColOfData; i++) {
 			fprintf(fp, "\n********************************************************\n");
 			fprintf(fp, "col: %d \n", i);
 			for (int z = 0; z < (*dataInfo).NFreq; z++) {
@@ -367,68 +367,18 @@ int main()
 	printf("^^^^^^^^^^^^^\n");
 	printf("NumberOfPoles: %d  \n poleSpacing: %f \n", NumberOfPoles, poleSpacing);
 
-	//###########################Ahat set up########################################
 
-	//size_t pitch;
-	//cudaMallocPitch(&devPtr, &devPitch, Ncols * sizeof(float), Nrows);
-	//cudaMallocPitch(&Ahat, &pitch, Ncols * sizeof(float), Nrows));
-	int* Apattern;
-	cudaMallocManaged(&Apattern, (NRealPoles + NComplexPoles + NPorts) * sizeof(int));
 
-	int isReal = 1;
-	for (int i = 0; i < NRealPoles * 2 + NComplexPoles * 2 + NPorts; i++) {
-		if (i < NRealPoles) {
-			Apattern[i] = 1;
-		}
-		else if (i < NRealPoles + NComplexPoles) {
-			Apattern[i] = (isReal) ? 2 : 3;
-			isReal ^= 1;
-		}
-		else if (i < NRealPoles + NComplexPoles + NPorts) {
-			Apattern[i] = 4;
-		}
-		else if ((i - NComplexPoles - NPorts - NRealPoles) < NRealPoles) {
-			Apattern[i] = -1;
-		}
-		else if ((i - NComplexPoles - NPorts - NRealPoles) < NRealPoles + NComplexPoles) {
-			Apattern[i] = (isReal) ? -2 : -3;
-			isReal ^= 1;
-		}
-	};
 
-	printf(" A Pattern: ");
-	for (int i = 0; i < NRealPoles * 2 + NComplexPoles * 2 + NPorts; i++) {
-		printf("%d ", Apattern[i]);
-	};
-	printf("\n");
 
-	int NCol = NRealPoles * 2 + NComplexPoles * 2;
+	//########################### Base Matrix Setup ########################################
+
+	// NCol is equal to the number of real poles + number of imaginary poles + 1 (d col)
+	int baseMatrix_NCol = NComplexPoles + NRealPoles + 1;
+	int baseMatrix_NRow = (*dataInfo).NFreq;
+
 	int NRow = (*dataInfo).NFreq;
 
-
-	double s;
-	printf("here 1\n");
-	int g = 0;
-	/*	for (int col = 0; col < NRealPoles; col++) {
-			for (int row = 0; row < (*frequencyInfo).fpointCount; row++) {
-				s = 2 * M_PI*freq[row];
-				//Ahat[col*NRow + row].x = (1 / (freq[row] - Real_Poles[col]);
-				Ahat[col*NRow + row].x = -Real_Poles[col]/(pow(Real_Poles[col],2) + pow(s,2));
-				Ahat[col*NRow + row].y = -s / (pow(Real_Poles[col], 2) + pow(s, 2));
-				g++;
-			};
-		}; */
-
-
-
-		//check the number f frequency points
-		//if(Nfreq)
-
-		//Ali: generate the base matrix
-
-		//generate a base matric with the width (columns) of NRealPoles + 2 * NComplexPoles and length (rows) of NFreq
-	int baseMatrix_NCol = NComplexPoles + NRealPoles;
-	int baseMatrix_NRow = (*dataInfo).NFreq;
 	cuComplex *baseMatrix;
 	cudaMallocManaged(&baseMatrix, baseMatrix_NRow * baseMatrix_NCol * sizeof(double));
 
@@ -437,47 +387,53 @@ int main()
 		clock_t tStart = clock();
 		/* Do your stuff here */
 
-		double denum;
-		int test = 0;
-		double real;
-		double imag;
-		int poleNumb = 0;
-
+		double real = 0, imag = 0, denum = 0, s=0;
+		int poleNumb = 0, isReal = 1;
+	
+		//for loop to generate base matrix
 		for (int col = 0; col < baseMatrix_NCol; col++) {
-			real = Poles[poleNumb].x;
-			imag = Poles[poleNumb].y;
+
+			if (poleNumb < NRealPoles + NComplexPoles) {
+				real = Poles[poleNumb].x;
+				imag = Poles[poleNumb].y;
+			}
 
 			for (int row = 0; row < baseMatrix_NRow; row++) {
 				s = 2 * M_PI*freq[row];
 				//real pole		
-				if (Apattern[col] == 1) {
+				if (col < NRealPoles) {
 					baseMatrix[col*NRow + row].x = -real / (pow(real, 2) + pow(s, 2));
 					baseMatrix[col*NRow + row].y = -s / (pow(real, 2) + pow(s, 2));
-					//poleNumb++;
+
 				}
-				//real pole	
-				else if (Apattern[col] == 2) {
+				//imag pole	real part
+				else if (col < NRealPoles + NComplexPoles && isReal) {
 					denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
 					baseMatrix[col*NRow + row].x = -2 * (real*(pow(real, 2) + pow(s, 2) + pow(imag, 2))) / denum;
 					baseMatrix[col*NRow + row].y = -2 * (s *(pow(real, 2) + pow(s, 2) - pow(imag, 2))) / denum;
 				}
-				else if (Apattern[col] == 3) {
+				//imag pole	imag part
+				else if (col < NRealPoles + NComplexPoles && !isReal) {
 					denum = (pow(real, 2)*(pow(real, 2) + 2 * pow(s, 2) + 2 * pow(imag, 2)) + pow(imag, 4) - 2 * pow(imag, 2)*pow(s, 2) + pow(s, 4));
 					baseMatrix[col*NRow + row].x = (-2 * imag*(pow(real, 2) - pow(s, 2) + pow(imag, 2))) / denum;
 					baseMatrix[col*NRow + row].y = (-4 * real*imag*s) / denum;
-					//poleNumb++;
+				}
+				//d col
+				else if (col == NRealPoles + NComplexPoles) {
+					baseMatrix[col*NRow + row].x = 1;
+					baseMatrix[col*NRow + row].y = 0;
 				}//endif
-			};
-			if (poleNumb < (NComplexPoles + NRealPoles)) {
-				poleNumb++;
-			}
-			else {
-				poleNumb = 0;
-			}
-		};
+			};//end row for loop
+			
+			poleNumb++;
 
+			if(col>= NRealPoles && col < NRealPoles + NComplexPoles)
+				isReal ^= 1;
+		}; //end col for loop
+
+		//Write base b matrix to file
 		FILE * fp;
-		fp = fopen("3_Basematrix.txt", "w+");
+		fp = fopen("2_Basematrix.txt", "w+");
 		for (int row = 0; row < baseMatrix_NRow; row++) {
 			for (int col = 0; col < baseMatrix_NCol; col++) {
 				fprintf(fp, " %.4e(%.4e)", baseMatrix[col*NRow + row].x, baseMatrix[col*NRow + row].y);
@@ -486,21 +442,21 @@ int main()
 		};
 		fclose(fp);
 
-		printf("here 2\n");
 
 		double realBase, imagBase, realData, imagData;
+		int dim = NColOfData;
 
-		int dim = NColToTake;
 
+		//###########################Ahat set up########################################
 		//Ali: generate the AhatMatrix
 		cuComplex *Ahat;
 		cudaMallocManaged(&Ahat, (dim)*NRow*(baseMatrix_NCol)*(dim+1) * sizeof(double));
 		poleNumb = 0;
 
 
-		for (int blocky = 0; blocky <= NColToTake; blocky++) {
-			for (int blockx = 0; blockx < NColToTake; blockx++) {
-				if (blocky == NColToTake) {
+		for (int blocky = 0; blocky <= NColOfData; blocky++) {
+			for (int blockx = 0; blockx < NColOfData; blockx++) {
+				if (blocky == NColOfData) {
 					for (int col = 0; col < baseMatrix_NCol; col++) {
 						for (int row = 0; row < baseMatrix_NRow; row++) {
 
@@ -510,7 +466,7 @@ int main()
 							realData = data[row + NFreq*blockx].x;
 							imagData = data[row + NFreq*blockx].y;
 
-							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColOfData)+col*NFreq*NColOfData + blockx*NFreq + row;
 
 							Ahat[memPosition].x = (realBase*realData - imagBase*imagData);
 							Ahat[memPosition].y = (realBase*imagData - imagBase*realData);
@@ -520,7 +476,7 @@ int main()
 				else if (blocky == blockx) {
 					for (int col = 0; col < baseMatrix_NCol; col++) {
 						for (int row = 0; row < baseMatrix_NRow; row++) {
-							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColOfData)+col*NFreq*NColOfData + blockx*NFreq + row;
 							Ahat[memPosition].x = baseMatrix[col*NRow + row].x;
 							Ahat[memPosition].y = baseMatrix[col*NRow + row].y;
 						}//end for row
@@ -531,7 +487,7 @@ int main()
 
 						for (int row = 0; row < baseMatrix_NCol; row++) {
 							
-							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColToTake)+col*NFreq*NColToTake + blockx*NFreq + row;
+							int memPosition = blocky*(baseMatrix_NCol)*(NFreq)*(NColOfData)+col*NFreq*NColOfData + blockx*NFreq + row;
 							Ahat[memPosition].x = 0;
 							Ahat[memPosition].y = 0;
 						}//end for row
@@ -557,9 +513,9 @@ int main()
 	//FILE * fp;
 
 	fp = fopen("2_Amatrix.txt", "w+");
-	for (int row = 0; row < NColToTake*NFreq; row++) {
-		for (int col = 0; col < baseMatrix_NCol*(NColToTake+1); col++) {
-			fprintf(fp, " %.4e(%.4e)", Ahat[col*NRow*NColToTake + row].x, Ahat[col*NRow*NColToTake + row].y);
+	for (int row = 0; row < NColOfData*NFreq; row++) {
+		for (int col = 0; col < baseMatrix_NCol*(NColOfData+1); col++) {
+			fprintf(fp, " %.4e(%.4e)", Ahat[col*NRow*NColOfData + row].x, Ahat[col*NRow*NColOfData + row].y);
 		}
 		fprintf(fp, "\n");
 	}
